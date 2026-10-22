@@ -4,19 +4,19 @@
 // The direct display driver's mode setting (stage 2): re-times the HDMI
 // port in use to another mode of the same size, through its pixel valve
 // (2 or 4), the HDMI encoder and its PHY, with the HVS channel restarted
-// to match. Only modes BMApple2 knows (../common/modes.h) are switched between,
+// to match. Only modes BMLisa knows (../common/modes.h) are switched between,
 // starting from a mode it recognises; if a step doesn't complete, the old
 // mode is put back.
 //
 // The steps and their order follow the behaviour of the Linux vc4 display
 // driver.
 //
-// This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+// This file is part of BMLisa, a bare metal Apple Lisa emulator for
 // the Raspberry Pi. See LICENSE for licensing details.
 //
 
-#ifndef BMAPPLE2_KMS_PI4_MODESET_H_
-#define BMAPPLE2_KMS_PI4_MODESET_H_
+#ifndef BMLISA_KMS_PI4_MODESET_H_
+#define BMLISA_KMS_PI4_MODESET_H_
 
 #include "hvs.h"
 #include "../common/modes.h"
@@ -33,7 +33,7 @@ public:
   // before anything else.
   void SetPort(unsigned port);
 
-  // The mode the port is running, if it is one BMApple2 knows (with its
+  // The mode the port is running, if it is one BMLisa knows (with its
   // nominal pixel clock, or the last one set here).
   bool Current(Timing *timing);
 

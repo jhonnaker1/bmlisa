@@ -1,156 +1,92 @@
-# BMApple2
+# BMLisa
 
-BMApple2 is a bare metal Apple IIgs and Apple IIe emulator for the Raspberry
-Pi Zero, 2, 3, 4 and 5. It runs Kent Dickey's [KEGS](https://kegs.sourceforge.net/)
-emulator directly on the hardware, with no Linux underneath, the same way
-[BMC64](https://github.com/randyrossi/bmc64) does for the Commodore 64,
-[BMA800XL](https://github.com/aminch/bma800xl) for the Atari 800XL and
-[BMCoco](https://github.com/jhonnaker1/bmcoco) for the Tandy Color Computer.
+BMLisa is a bare metal Apple Lisa emulator for the Raspberry Pi. It runs
+[IDLE](https://sourceforge.net/projects/idle-lisa-emu/), the Lisa emulator
+by Gilles Fétis, directly on the hardware, with no Linux underneath, the
+same way [BMC64](https://github.com/randyrossi/bmc64) does for the
+Commodore 64, [BMA800XL](https://github.com/aminch/bma800xl) for the Atari
+800XL, [BMCoco](https://github.com/jhonnaker1/bmcoco) for the Tandy Color
+Computer and [BMApple2](https://github.com/jhonnaker1/bmapple2) for the
+Apple IIgs.
 
-BMApple2 is based on [BMCoco](https://github.com/jhonnaker1/bmcoco), which is
+BMLisa is based on [BMApple2](https://github.com/jhonnaker1/bmapple2),
+which is based on [BMCoco](https://github.com/jhonnaker1/bmcoco), which is
 based on [BMA800XL](https://github.com/aminch/bma800xl) by Adam Minchinton,
 which is based on [BMC64](https://github.com/randyrossi/bmc64) by Randy
-Rossi. The emulator is replaced by KEGS; the kernel, display, sound, network
-and web UI come from those projects.
+Rossi. The emulator is replaced by IDLE; the kernel, display, network and
+web UI come from those projects.
 
-BMApple2 wouldn't be possible without the work behind the open source
-projects it builds on. Thanks to their authors and contributors for making
-it available; see the [third-party](docs/THIRD_PARTY.md) acknowledgements.
+**BMLisa is in development.** It runs in the PC simulator
+(`tools/hostsim`), and its Raspberry Pi kernels build, for the Pi Zero, 2,
+3, 4 and 5; they haven't been tried on a Pi yet. See
+[docs/INSTALLATION.md](docs/INSTALLATION.md) and the
+[User Guide](docs/USER_GUIDE.md).
 
-- Emulates the Apple IIgs (ROM 01 or ROM 3), and the Apple IIe with a IIe ROM,
-  chosen in the menu
-- Boots GS/OS, ProDOS and DOS 3.3 disks: hard disk images in slot 7, 3.5"
-  disks in slot 5, 5.25" disks in slot 6 (`.po`, `.2mg`, `.hdv`, `.dsk`,
-  `.do`, `.nib`, `.woz`)
-- Frames locked to the display's refresh for perfectly smooth scrolling
-  (the IIgs runs at 59.92 Hz), with the sound kept in step: the IIgs's
-  Ensoniq, the speaker and, in KEGS's settings, a Mockingboard
-- USB keyboards and mice; USB gamepads as the Apple II's joystick (an analog
-  stick gives the full paddle range); real joysticks wired to the GPIO header
-- No shutdown needed: just switch it off (disk images are written as the
-  emulated machine writes them, and pushed out to the card every second)
-- KEGS's own settings (F4) for disks, speed and the rest, and a menu (F10):
-  the machine, a colour or monochrome monitor (white, green or amber), the
-  volume, video, sound and network
-- Optional Ethernet or Wi-Fi with BMC64's web UI: manage the SD card from a
-  browser and start disk images; and a virtual modem on the modem port, to
-  call telnet BBSes from a terminal program (`ATDTbbs.example.com:23`)
+## How it works
+
+IDLE's emulation (`third_party/idle`, from its Subversion repository,
+unmodified) is built without its SDL front end (`src/port/idle.mk`), on
+[Musashi](https://github.com/kstenerud/Musashi) 4 (`third_party/musashi`)
+for its 68000: IDLE's own copy of Musashi, and its serial chip, aren't in
+BMLisa, as their licences don't allow it (`src/port/lisa_cpu.c` and
+`src/port/scc.cpp` do what IDLE's changes to them did; see
+[the third-party notes](docs/THIRD_PARTY.md)).
+`src/port/lisa.cpp` does what that front end did, and
+`src/port/platform.c` runs it on top of the kernel services in
+`src/host.h`:
+
+- The Lisa's 720 x 364 screen goes to the display at 4:3, locked to its
+  refresh (the Lisa runs 59.5 frames a second), in white, green or amber.
+- USB keyboards (Ctrl and the Windows or Command key are the Apple key, Alt
+  the Option keys) and mice.
+- The ProFile hard disk is an image on the SD card (`disks/profile.raw`
+  unless another is chosen; a blank 10 MB one is made if there is none),
+  and floppies are Disk Copy 4.2 images.
+- F12 opens BMLisa's menu: the floppy, the hard disk, the Lisa's power
+  button (also F10), restarting, speed, the model (Lisa 2 or Lisa 1),
+  video, network.
+- When the Lisa's software switches it off, the screen goes dark until a
+  key or a click switches it on again.
+
+It runs the Lisa Office System 3.1, the Workshop 3.0, MacWorks XL 3.0
+(the Macintosh's Finder: choose a double-click speed in its Control Panel
+once) and SCO Xenix 3.0. The Lisa's parameter memory, its battery-backed
+settings, is kept on the card (`bmlisa.pram`).
+
+Xenix on a hard disk is started from its boot floppy, as on a real Lisa:
+the boot ROM can't start it (error 75). Insert `Xenix 3.0 Boot.dc42`, press
+Apple+3 (Startup From...), then Apple+2 (the floppy), and at Xenix's `:`
+prompt type `pf(0,0)xenix` (it misses the first key: type it again if the
+`p` is lost). Apple (Ctrl) is Xenix's Control key: Apple+d at its startup
+prompt.
 
 ## ROMs
 
-The Apple IIgs and IIe ROMs are copyrighted by Apple and are not included.
-Copy your own into the `roms` folder of the SD card: `ROM.03` (or `ROM.01`)
-for a IIgs, `APPLE2E.ROM` for a IIe. See [docs/ROMS.txt](docs/ROMS.txt).
+The Lisa's ROMs are Apple's, so they are not included. Copy yours into the
+SD card's `roms` folder: `341-0175-h`, `341-0176-h` and `vidstate.rom` for
+the Lisa 2 (MAME's `lisa2.zip` has them under these names), or
+`L175REVC.bin`, `L176REVC.bin` and `vidstate.rom` for the Lisa 1. See
+[docs/ROMS.txt](docs/ROMS.txt).
 
-A MAME ROM set works too (such as the one in
-[Ample](https://github.com/ksherlock/ample) on the Mac): copy `341-0728` and
-`341-0748` out of `apple2gs.zip` into `roms`, and BMApple2 makes `ROM.03` from
-them the first time it starts (MAME keeps the ROM chips, with the second's
-halves the other way round). The same works for the IIe from `apple2e.zip`
-and `a2diskiing.zip`; see [docs/ROMS.txt](docs/ROMS.txt).
-
-## Supported hardware
-
-Raspberry Pi 3 Model B, B+ and A+, and the Raspberry Pi Zero 2 W
-(`kernel8-32.img`), and the Raspberry Pi 2 Model B (`kernel7.img`). The card
-has a kernel for each and each Pi starts its own. Video and sound go out over
-HDMI; sound can also go to the 3.5mm jack.
-
-The Raspberry Pi 4 Model B and Pi 400 (`kernel8-rpi4.img`, 64-bit) are
-supported too, with the display run at the IIgs's exact refresh rate on either
-HDMI port, the CRT effect and smooth scaling drawn by its 3D GPU, and sound
-over HDMI or the Pi 4 B's 3.5mm jack. See [docs/PI4.md](docs/PI4.md).
-
-The Raspberry Pi 5, Pi 500 and Pi 500+ (`kernel_2712.img`, 64-bit) are
-supported too. See [docs/PI5.md](docs/PI5.md).
-
-The Raspberry Pi Zero and Zero W (`kernel.img`) start too, with everything
-on their one, slower core, but they are likely too slow for the IIgs; an
-Apple IIe at 1 MHz has the best chance.
-
-The Pi 4's 3D GPU, the Pi 5 and the Pi Zero come from BMA800XL 1.2.0 to
-1.4.0.
-
-## Getting started
-
-1. Format an SD card as FAT32.
-2. Copy the contents of a release zip (or of `build/sdcard/` after building)
-   to the root of the card.
-3. Copy your ROM into `roms`, and your disk images to the card (the `disks`
-   folder is there for them, but any folder works).
-4. Boot the Pi with a USB keyboard (and a mouse) connected. With no disks
-   yet, the IIgs says *Check startup device!*. Press **F4**, choose *Disk
-   Configuration*, and put a disk image in a drive (slot 7 drive 1 for a
-   GS/OS hard disk image), then *Restart* in the **F10** menu.
-
-## Keys
-
-| Key                       | Does                                            |
-|---------------------------|-------------------------------------------------|
-| F10                       | BMApple2's menu                                 |
-| F4                        | KEGS's settings: disks, ROM, speed, joystick    |
-| Ctrl+F12                  | Reset                                           |
-| Windows / Command, or F1  | Open Apple (Command)                            |
-| Alt, or F2                | Option (Solid Apple)                            |
-| F3                        | Escape                                          |
-| F6                        | Speed (1 MHz, 2.8 MHz, 8 MHz, unlimited)        |
-| F5                        | KEGS's status lines                             |
-
-To restart the machine (as switching it off and on does), choose *Restart*
-in the F10 menu.
-
-Gamepads are the joystick: the left stick or D-pad moves, **A** and **B** are
-buttons 0 and 1, **X** types Space and **Y** Return. **Home**, or
-**Select+Start** together, opens the menu, where the D-pad moves, **A**
-chooses and **B** goes back.
-
-See the [User Guide](docs/USER_GUIDE.md) for all the details, including the
-options in `cmdline.txt` and the GPIO joystick wiring. All the documents are
-listed in [docs/README.md](docs/README.md).
-
-## Building
+## The PC simulator
 
 ```
-./build_sdcard.sh
+tools/hostsim/run_tests.sh
+BMLISA_ROMS=/path/to/roms BMLISA_LOS=los.zip BMLISA_WORKSHOP=workshop.zip \
+    BMLISA_MACWORKS=macworks.zip BMLISA_XENIX=xenix.zip BMLISA_XENIX_BOOT=boot.dc42 \
+    BMLISA_FLOPPY=disk.image tools/hostsim/run_tests.sh
+tools/hostsim/live.sh /path/to/roms
 ```
 
-builds everything (the kernels for all three boards; `./build_sdcard.sh pi3`,
-`pi2` or `pi4` builds one) and stages the SD card files in `build/sdcard/`.
-It works on Linux and macOS. See [docs/BUILDING.md](docs/BUILDING.md).
+The tests need your ROMs and hard disk images (copies are used, never the
+files themselves): they boot the Lisa Office System to its desktop, open a
+menu with the mouse, shut it down with the power button and start it
+again, insert a floppy, type at the Workshop's command line, open
+MacWorks XL's hard disk from the Finder's File menu, and boot Xenix from
+its floppy, log in as root and list its files.
+`live.sh` runs BMLisa in real time in a web page.
 
-BMApple2 can also run on a PC, in a simulator, for testing and debugging
-(with gdb, lldb or strace): see [docs/SIMULATOR.md](docs/SIMULATOR.md).
+## License
 
-## How it fits together
-
-```
-src/main.cpp, kernel.cpp   Circle kernel: USB, GPIO, SD card; runs KEGS on core 1
-src/fbl.cpp                Display (dispmanx layer, optional CRT shader), from BMC64
-src/vchiqsound*.cpp        Sound over HDMI or the headphone jack, from BMC64
-src/network.cpp, webui/    Ethernet / Wi-Fi and the web UI, from BMC64
-src/host.h                 What the kernel offers the emulator
-src/port/platform.c        KEGS's front end: picture, keyboard, mouse, ROMs; main loop
-src/port/snddrv.c          KEGS's sound output
-src/port/joystick.c        Gamepads and GPIO joysticks as the Apple II's joystick
-src/port/keymap.c          USB keys to Apple Desktop Bus key codes
-src/port/menu.c, osd.c     The menu, drawn in the Apple II's font
-src/port/kegs.mk           KEGS's source list
-third_party/kegs           KEGS (submodule)
-third_party/circle-stdlib  Circle and newlib (submodule)
-src/av/                    Shared Pi 4/5 video, ARM scaling / CRT shader and sound
-src/v3d/                   Shared Pi 4/5 GPU driver and CRT rendering
-src/kms/common/            Shared Pi 4/5 filter kernels and mode calculations
-src/kms/pi4/               Pi 4 direct display driver (docs/PI4.md)
-src/kms/pi5/               Pi 5 direct display driver (docs/PI5.md)
-tools/hostsim              Runs the emulator port on a PC for testing
-tools/pi4scaler            Tests shared Pi 4/5 ARM scaling and CRT rendering on a PC
-tools/pi4kms               Tests Pi 4/5 display driver calculations on a PC
-```
-
-KEGS is used unmodified: everything specific to BMApple2 is in `src/`.
-
-## Licence
-
-BMApple2 is free software under the GNU General Public License version 3; see
-[LICENSE](LICENSE). It includes software from other projects under their own
-licences; see [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+GPL 3 (see LICENSE). IDLE is under a BSD licence and Musashi under the MIT
+licence; see [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).

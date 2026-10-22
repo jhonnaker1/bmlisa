@@ -3,10 +3,10 @@
 //
 // The Pi 4 and Pi 5 display: Circle's framebuffer driver (CBcmFrameBuffer), which
 // asks the VideoCore firmware for a framebuffer through the mailbox
-// property interface. The firmware puts it on the screen; BMApple2 scales
-// the Apple II's picture into it.
+// property interface. The firmware puts it on the screen; BMLisa scales
+// the Lisa's picture into it.
 //
-// The picture comes from KEGS as RGB565 (BMA800XL's, from atari800, is
+// The picture comes from BMLisa as RGB565 (BMA800XL's, from atari800, is
 // 8-bit indexed with a palette; this is its code, changed for that). Sharp
 // pixels (the default) use a 16-bit framebuffer the size of the display. Smooth scaling and the CRT shader (src/av/scaler.h) need
 // a 32-bit one; it is at most 1080 lines high (720 with curvature and
@@ -40,12 +40,12 @@
 //    semaphore.cpp: Circle's VCHIQ waits yield, which is how the Pi 3 runs
 //    them while it waits for a frame.
 //
-// This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+// This file is part of BMLisa, a bare metal Apple Lisa emulator for
 // the Raspberry Pi. See LICENSE for licensing details.
 //
 
-#ifndef BMAPPLE2_AV_VIDEO_H_
-#define BMAPPLE2_AV_VIDEO_H_
+#ifndef BMLISA_AV_VIDEO_H_
+#define BMLISA_AV_VIDEO_H_
 
 #include "frameshare.h"
 #include "scaler.h"
@@ -65,9 +65,9 @@ public:
   ~Pi4Video(void);
 
   // Which driver puts the picture on the screen (the video_driver option):
-  // the firmware's framebuffer, or BMApple2's own display lists on the HVS
+  // the firmware's framebuffer, or BMLisa's own display lists on the HVS
   // (src/kms/pi4/ or, on the Pi 5, src/kms/pi5/; docs/PI4.md), on the
-  // firmware's video mode or (Kms) with BMApple2 setting the mode too.
+  // firmware's video mode or (Kms) with BMLisa setting the mode too.
   enum class Driver { Firmware, Hvs, Kms };
 
   // Core 0, at start up: takes a double buffered framebuffer and, if asked

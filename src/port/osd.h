@@ -1,17 +1,16 @@
 /*
- * osd.h - BMApple2's on-screen display: menus, file browser, text entry.
+ * osd.h - BMLisa's on-screen display: menus, file browser, text entry.
  *
- * BMApple2's own menu (network, sound, video, power) is drawn straight into
- * the emulator's frame buffer, in the style of an Apple II text screen.
- * KEGS's configuration screen (F4: disks, ROM, machine settings) is KEGS's
- * own. While the display is open the emulation is paused.
+ * BMLisa's menu (disks, the Lisa's power, video, network) is drawn
+ * straight into the emulator's frame buffer, 40 columns of text. While the
+ * display is open the emulation is paused.
  *
- * This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+ * This file is part of BMLisa, a bare metal Apple Lisa emulator for
  * the Raspberry Pi. See LICENSE for licensing details.
  */
 
-#ifndef BMAPPLE2_OSD_H_
-#define BMAPPLE2_OSD_H_
+#ifndef BMLISA_OSD_H_
+#define BMLISA_OSD_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -102,4 +101,4 @@ void osd_draw_notification(uint16_t *fb, int pitch_px, int w, int h);
 void osd_draw_disk_status(uint16_t *fb, int pitch_px, int w, int h,
                           const char *text, int light, int error);
 
-#endif /* BMAPPLE2_OSD_H_ */
+#endif /* BMLISA_OSD_H_ */

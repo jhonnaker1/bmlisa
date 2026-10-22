@@ -13,12 +13,12 @@
 // include/circle/memorymap64.h for where the BCM2712's AXI and SoC
 // peripherals are.
 //
-// This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+// This file is part of BMLisa, a bare metal Apple Lisa emulator for
 // the Raspberry Pi. See LICENSE for licensing details.
 //
 
-#ifndef BMAPPLE2_V3D_REGS_H_
-#define BMAPPLE2_V3D_REGS_H_
+#ifndef BMLISA_V3D_REGS_H_
+#define BMLISA_V3D_REGS_H_
 
 #include <stdint.h>
 

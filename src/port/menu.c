@@ -1,28 +1,29 @@
 /*
- * menu.c - the BMApple2 menu.
+ * menu.c - the BMLisa menu.
  *
- * F10, a gamepad's Home button or Select+Start open it. BMApple2's own
- * settings (network, sound, video, power); everything about the emulated
- * IIgs (disks, the ROM, speed, the machine's settings) is in KEGS's own
- * configuration screen, F4, which this menu opens too. Settings are saved
- * in bmapple2.cfg and used again at the next boot.
+ * F12, a gamepad's Home button or Select+Start open it: the Lisa's disks,
+ * its power button, speed and model, and BMLisa's settings (video,
+ * network, power). Settings are saved in bmlisa.cfg and used again at the
+ * next boot.
  *
- * From BMCoco's menu.c.
+ * From BMApple2's menu.c.
  *
- * This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
- * the Raspberry Pi. See LICENSE for licensing details.
+ * This file is part of BMLisa, a bare metal Apple Lisa emulator for the
+ * Raspberry Pi. See LICENSE for licensing details.
  */
 
-#include "defc.h"
-
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "../host.h"
-#include "bmapple2.h"
+#include "bmlisa.h"
+#include "lisa.h"
 #include "osd.h"
 
-#ifndef BMAPPLE2_VERSION
-#define BMAPPLE2_VERSION "dev"
+#ifndef BMLISA_VERSION
+#define BMLISA_VERSION "dev"
 #endif
 
 #define WPA_CONFIG "wpa_supplicant.conf"
@@ -35,7 +36,7 @@ static int reboot_needed;
 static void save_setting(const char *name, const char *value)
 {
 	if (!host_option_set(name, value) || !host_options_save())
-		osd_message("Cannot save bmapple2.cfg", TRUE);
+		osd_message("Cannot save bmlisa.cfg", TRUE);
 }
 
 static void save_setting_int(const char *name, int value)
@@ -61,8 +62,57 @@ static unsigned check(int on)
 
 static void power(int off)
 {
-	bmapple2_request_power(off);
-	bmapple2_idle();
+	bmlisa_request_power(off);
+	bmlisa_idle();
+}
+
+/* ---- Disks ---------------------------------------------------------------- */
+
+/* Where the file browser starts: the disks folder, then where the last
+   disk was chosen. */
+static char browse_dir[256];
+
+static void start_browsing(void)
+{
+	const char *root = bmlisa_sd_root();
+	size_t len = strlen(root);
+	if (browse_dir[0] == '\0')
+		snprintf(browse_dir, sizeof browse_dir, "%s%sdisks", root,
+		         len > 0 && root[len - 1] == '/' ? "" : "/");
+}
+
+/* The file's name, without its folder. */
+static const char *base_name(const char *path)
+{
+	const char *slash = path != NULL ? strrchr(path, '/') : NULL;
+	return slash != NULL ? slash + 1 : path;
+}
+
+static int choose_floppy(int drive)
+{
+	static const char *const exts[] = {"dc42", "image", "img", "dsk", "dc", NULL};
+	char path[512];
+	start_browsing();
+	if (!osd_browse("Floppy Disk Image", browse_dir, sizeof browse_dir, exts, path, sizeof path))
+		return FALSE;
+	if (!bmlisa_insert_floppy(path, drive)) {
+		osd_message("That isn't a floppy image the Lisa can read (Disk Copy 4.2).", TRUE);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+static int choose_hard_disk(void)
+{
+	char path[512];
+	start_browsing();
+	if (!osd_browse("Hard Disk Image", browse_dir, sizeof browse_dir, NULL, path, sizeof path))
+		return FALSE;
+	if (!bmlisa_set_hard_disk(path)) {
+		osd_message("That isn't a ProFile hard disk image (5 or 10 MB of 532 byte blocks).", TRUE);
+		return FALSE;
+	}
+	return TRUE;
 }
 
 /* ---- Video -------------------------------------------------------------- */
@@ -74,7 +124,7 @@ static const char *vsync_mode(void)
 		return "On";
 	if (strcmp(mode, "off") == 0 || strcmp(mode, "0") == 0)
 		return "Off";
-	return bmapple2_vsync_locked() ? "Auto (locked)" : "Auto (timer)";
+	return bmlisa_vsync_locked() ? "Auto (locked)" : "Auto (timer)";
 }
 
 /* The picture's height as a percentage of the screen's (the scale option):
@@ -105,13 +155,12 @@ static void choose_screen_size(void)
 		return;
 	snprintf(text, sizeof text, "%d.%02d", sizes[i] / 100, sizes[i] % 100);
 	save_setting("scale", text);
-	bmapple2_video_settings_changed();
+	bmlisa_video_settings_changed();
 }
 
 static void video_menu(void)
 {
-	enum { V_MONITOR, V_SIZE, V_VSYNC, V_RESOLUTION, V_SHADER, V_CURVATURE, V_SMOOTH,
-	       V_ACTIVITY };
+	enum { V_MONITOR, V_SIZE, V_VSYNC, V_RESOLUTION, V_SHADER, V_CURVATURE, V_SMOOTH };
 	/* The Pi 5 only: its firmware ignores hdmi_mode (from BMA800XL). */
 	static const char *const resolutions[] = {"auto", "1920x1080", "1280x720", NULL};
 	static const char *const resolution_names[] = {"Auto", "1920x1080", "1280x720", NULL};
@@ -125,14 +174,13 @@ static void video_menu(void)
 			if (strcmp(res, resolutions[k]) == 0)
 				res_index = k;
 		struct osd_item items[] = {
-			{"Monitor", bmapple2_monitor_name(bmapple2_monitor()), OSD_ITEM_SUBMENU, V_MONITOR},
+			{"Monitor", bmlisa_monitor_name(bmlisa_monitor()), OSD_ITEM_SUBMENU, V_MONITOR},
 			{"Screen Size", size_text, OSD_ITEM_SUBMENU, V_SIZE},
 			{"Frame Lock", vsync_mode(), OSD_ITEM_SUBMENU, V_VSYNC},
 			{"Resolution", resolution_names[res_index], OSD_ITEM_SUBMENU, V_RESOLUTION},
 			{"CRT Effect (reboot)", NULL, check(setting_on("crt_shader", FALSE)), V_SHADER},
 			{"CRT Curvature (reboot)", NULL, check(setting_on("crt_curvature", FALSE)), V_CURVATURE},
 			{"Smooth Scaling (reboot)", NULL, check(setting_on("smooth", FALSE)), V_SMOOTH},
-			{"Show Disk Activity", NULL, check(bmapple2_disk_activity()), V_ACTIVITY},
 			{"", NULL, OSD_ITEM_LABEL, -1},
 			{"If your TV cuts off the edges, make", NULL, OSD_ITEM_LABEL, -1},
 			{"the Screen Size smaller.", NULL, OSD_ITEM_LABEL, -1},
@@ -150,15 +198,11 @@ static void video_menu(void)
 		case V_SIZE:
 			choose_screen_size();
 			break;
-		case V_ACTIVITY:
-			save_setting("disk_activity", bmapple2_disk_activity() ? "0" : "1");
-			bmapple2_set_disk_activity(!bmapple2_disk_activity());
-			break;
 		case V_RESOLUTION:
 			i = osd_choose("Resolution", resolution_names, res_index);
 			if (i >= 0 && i != res_index) {
 				save_setting("resolution", resolutions[i]);
-				bmapple2_display_mode_changed();
+				bmlisa_display_mode_changed();
 			}
 			break;
 		case V_CURVATURE:
@@ -166,14 +210,14 @@ static void video_menu(void)
 			reboot_needed = TRUE;
 			break;
 		case V_MONITOR: {
-			const char *names[BMAPPLE2_MONITORS + 1];
+			const char *names[BMLISA_MONITORS + 1];
 			int m;
-			for (m = 0; m < BMAPPLE2_MONITORS; m++)
-				names[m] = bmapple2_monitor_name(m);
-			names[BMAPPLE2_MONITORS] = NULL;
-			m = osd_choose("Monitor", names, bmapple2_monitor());
+			for (m = 0; m < BMLISA_MONITORS; m++)
+				names[m] = bmlisa_monitor_name(m);
+			names[BMLISA_MONITORS] = NULL;
+			m = osd_choose("Monitor", names, bmlisa_monitor());
 			if (m >= 0)
-				bmapple2_set_monitor(m);
+				bmlisa_set_monitor(m);
 			break;
 		}
 		case V_VSYNC: {
@@ -186,7 +230,7 @@ static void video_menu(void)
 			i = osd_choose("Frame Lock", choices, current);
 			if (i >= 0) {
 				save_setting("vsync", values[i]);
-				bmapple2_video_settings_changed();
+				bmlisa_video_settings_changed();
 			}
 			break;
 		}
@@ -204,58 +248,13 @@ static void video_menu(void)
 	}
 }
 
-/* ---- Sound ---------------------------------------------------------------- */
-
-static void sound_menu(void)
-{
-	enum { S_VOLUME, S_OUTPUT };
-	static const char *const volumes[] = {
-		"100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%", "10%", "Off", NULL
-	};
-	static const char *const outputs[] = {"auto", "hdmi", "analog"};
-	static const char *const output_names[] = {"Automatic", "HDMI", "Headphone jack", NULL};
-	int sel = 0;
-	for (;;) {
-		const char *out = host_option("audio_out", "auto");
-		int out_index = strcmp(out, "hdmi") == 0 ? 1
-		                : strcmp(out, "analog") == 0 || strcmp(out, "headphones") == 0 ? 2 : 0;
-		char volume[8];
-		struct osd_item items[] = {
-			{"Volume", volume, OSD_ITEM_SUBMENU, S_VOLUME},
-			{"Output (reboot)", output_names[out_index], OSD_ITEM_SUBMENU, S_OUTPUT},
-			{"", NULL, OSD_ITEM_LABEL, -1},
-			{"On a IIgs, its Control Panel", NULL, OSD_ITEM_LABEL, -1},
-			{"(Ctrl+Cmd+Esc) sets a volume too.", NULL, OSD_ITEM_LABEL, -1},
-		};
-		int chosen, i;
-		if (bmapple2_volume() == 0)
-			snprintf(volume, sizeof volume, "Off");
-		else
-			snprintf(volume, sizeof volume, "%d%%", bmapple2_volume());
-		chosen = osd_menu("Sound", items, sizeof(items) / sizeof(items[0]), &sel);
-		if (chosen == S_VOLUME) {
-			i = osd_choose("Volume", volumes, (100 - bmapple2_volume() + 5) / 10);
-			if (i >= 0)
-				bmapple2_set_volume(100 - i * 10);
-			continue;
-		}
-		if (chosen != S_OUTPUT)
-			return;
-		i = osd_choose("Sound Output", output_names, out_index);
-		if (i >= 0 && i != out_index) {
-			save_setting("audio_out", outputs[i]);
-			reboot_needed = TRUE;
-		}
-	}
-}
-
 /* ---- Network --------------------------------------------------------------- */
 
 static char wifi_ssid[33], wifi_psk[64], wifi_country[3];
 
 static void wpa_path(char *path, size_t size)
 {
-	const char *root = bmapple2_sd_root();
+	const char *root = bmlisa_sd_root();
 	size_t len = strlen(root);
 	snprintf(path, size, "%s%s%s", root, len > 0 && root[len - 1] == '/' ? "" : "/", WPA_CONFIG);
 }
@@ -480,32 +479,29 @@ static void network_menu(void)
 
 /* ---- Information ----------------------------------------------------------- */
 
-extern const char g_kegs_version_str[];   /* sim65816.c */
-
 static void about(void)
 {
 	char text[640], status[64];
-	const char *rom = bmapple2_rom_file();
 	int w, h;
 	host_display_size(&w, &h);
 	host_network_status(status, sizeof(status));
 	snprintf(text, sizeof(text),
-	         "BMApple2 " BMAPPLE2_VERSION "\n"
-	         "Bare metal Apple IIgs and IIe\n"
-	         "emulator "
+	         "BMLisa " BMLISA_VERSION "\n"
+	         "Bare metal Apple Lisa emulator\n"
 	         "for the Raspberry Pi.\n\n"
-	         "Emulation: KEGS %s\n"
-	         "by Kent Dickey (GPL 3).\n"
-	         "Based on BMCoco, BMA800XL and BMC64.\n\n"
+	         "Emulation: IDLE 0.10\n"
+	         "by Gilles Fetis (BSD licence).\n"
+	         "Based on BMApple2, BMCoco,\n"
+	         "BMA800XL and BMC64.\n\n"
 	         "Machine: %s\n"
-	         "ROM: %s\n"
+	         "Hard disk: %s\n"
 	         "Display: %dx%d %.2f Hz\n"
 	         "Frames: %.2f Hz, %s\n"
 	         "Network: %s",
-	         g_kegs_version_str, bmapple2_machine_name(bmapple2_machine()),
-	         rom ? rom : "(none)", w, h, bmapple2_refresh_rate(), VBL_RATE,
-	         bmapple2_vsync_locked() ? "locked to display" : "timer paced", status);
-	osd_info("About BMApple2", text);
+	         bmlisa_machine_name(bmlisa_machine()), base_name(bmlisa_hard_disk()),
+	         w, h, bmlisa_refresh_rate(), LISA_FRAME_RATE,
+	         bmlisa_vsync_locked() ? "locked to display" : "timer paced", status);
+	osd_info("About BMLisa", text);
 }
 
 static void offer_reboot(void)
@@ -516,74 +512,89 @@ static void offer_reboot(void)
 
 /* ---- Machine ------------------------------------------------------------------ */
 
-/* The machines there are ROMs for; choosing one starts it. */
+/* The models there are ROMs for; choosing one reboots into it. */
 static void machine_menu(void)
 {
-	char names[BMAPPLE2_MACHINES][48];
-	const char *choices[BMAPPLE2_MACHINES + 1];
+	char names[BMLISA_MACHINES][48];
+	const char *choices[BMLISA_MACHINES + 1];
 	int m;
-	for (m = 0; m < BMAPPLE2_MACHINES; m++) {
-		snprintf(names[m], sizeof names[m], "%s%s", bmapple2_machine_name(m),
-		         bmapple2_machine_available(m) ? "" : " (no ROM)");
+	for (m = 0; m < BMLISA_MACHINES; m++) {
+		snprintf(names[m], sizeof names[m], "%s%s", bmlisa_machine_name(m),
+		         bmlisa_machine_available(m) ? "" : " (no ROMs)");
 		choices[m] = names[m];
 	}
-	choices[BMAPPLE2_MACHINES] = NULL;
-	m = osd_choose("Machine", choices, bmapple2_machine() < 0 ? 0 : bmapple2_machine());
-	if (m < 0 || m == bmapple2_machine())
+	choices[BMLISA_MACHINES] = NULL;
+	m = osd_choose("Machine (reboots)", choices, bmlisa_machine() < 0 ? 0 : bmlisa_machine());
+	if (m < 0 || m == bmlisa_machine())
 		return;
-	if (!bmapple2_machine_available(m)) {
-		osd_message("There is no ROM for that machine in the roms folder (see roms/ROMS.txt).", TRUE);
+	if (!bmlisa_machine_available(m)) {
+		osd_message("Its ROMs aren't in the roms folder (see roms/ROMS.txt).", TRUE);
 		return;
 	}
-	bmapple2_set_machine(m);
+	bmlisa_set_machine(m);
 }
 
 /* ---- Main menu ---------------------------------------------------------------- */
 
-void bmapple2_menu(void)
+void bmlisa_menu(void)
 {
-	enum { M_KEGS, M_RESET, M_RESTART, M_MACHINE, M_VIDEO, M_SOUND, M_NETWORK, M_ABOUT,
-	       M_REBOOT, M_OFF };
+	enum { M_FLOPPY, M_FLOPPY2, M_HARD_DISK, M_POWER_BUTTON, M_RESTART, M_NMI, M_FAST,
+	       M_MACHINE, M_VIDEO, M_NETWORK, M_ABOUT, M_REBOOT, M_OFF };
 	static int sel = 0;
 	char title[48];
 
-	snprintf(title, sizeof(title), "BMApple2 %s", BMAPPLE2_VERSION);
+	snprintf(title, sizeof(title), "BMLisa %s", BMLISA_VERSION);
 	reboot_needed = FALSE;
 	osd_open();
 	for (;;) {
+		int two = bmlisa_lisa_floppy_drives() == 2;
+		const char *f1 = base_name(bmlisa_floppy(0)), *f2 = base_name(bmlisa_floppy(1));
 		struct osd_item items[] = {
-			{"KEGS Settings (F4)", NULL, OSD_ITEM_SUBMENU, M_KEGS},
-			{"Reset (Ctrl+F12)", NULL, 0, M_RESET},
-			{"Restart (boot again)", NULL, 0, M_RESTART},
+			{two ? "Upper Floppy" : "Floppy", f1 ? f1 : "(insert)", OSD_ITEM_SUBMENU, M_FLOPPY},
+			{"Lower Floppy", f2 ? f2 : "(insert)", OSD_ITEM_SUBMENU, M_FLOPPY2},
+			{"Hard Disk", base_name(bmlisa_hard_disk()), OSD_ITEM_SUBMENU, M_HARD_DISK},
 			{"", NULL, OSD_ITEM_LABEL, -1},
-			{"Machine", bmapple2_machine_name(bmapple2_machine()), OSD_ITEM_SUBMENU, M_MACHINE},
+			{"Lisa Power Button (F10)", NULL, 0, M_POWER_BUTTON},
+			{"Restart the Lisa", NULL, 0, M_RESTART},
+			{"Interrupt (NMI)", NULL, 0, M_NMI},
+			{"Fast", NULL, check(bmlisa_fast()), M_FAST},
+			{"Machine", bmlisa_machine_name(bmlisa_machine()), OSD_ITEM_SUBMENU, M_MACHINE},
+			{"", NULL, OSD_ITEM_LABEL, -1},
 			{"Video", NULL, OSD_ITEM_SUBMENU, M_VIDEO},
-			{"Sound", NULL, OSD_ITEM_SUBMENU, M_SOUND},
 			{"Network", NULL, OSD_ITEM_SUBMENU, M_NETWORK},
 			{"About", NULL, OSD_ITEM_SUBMENU, M_ABOUT},
 			{"", NULL, OSD_ITEM_LABEL, -1},
 			{"Reboot", NULL, 0, M_REBOOT},
 			{"Shut Down", NULL, 0, M_OFF},
-			{"", NULL, OSD_ITEM_LABEL, -1},
-			{"Disks, speed: KEGS Settings.", NULL, OSD_ITEM_LABEL, -1},
 		};
-		int chosen = osd_menu(title, items, sizeof(items) / sizeof(items[0]), &sel);
-		int leave = FALSE;
+		int n_items = sizeof(items) / sizeof(items[0]), k;
+		int chosen, leave = FALSE;
+		if (!two) {
+			/* One drive: no Lower Floppy. */
+			for (k = 1; k < n_items - 1; k++)
+				items[k] = items[k + 1];
+			n_items--;
+		}
+		chosen = osd_menu(title, items, n_items, &sel);
 
 		switch (chosen) {
-		case M_KEGS: bmapple2_kegs_config(); leave = TRUE; break;
-		case M_RESET: do_reset(); leave = TRUE; break;
-		case M_RESTART: bmapple2_restart(); leave = TRUE; break;
-		case M_MACHINE:
-			machine_menu();
-			leave = osd_closing() || bmapple2_machine() >= 0;
+		case M_FLOPPY: leave = choose_floppy(0); break;
+		case M_FLOPPY2: leave = choose_floppy(1); break;
+		case M_HARD_DISK: leave = choose_hard_disk(); break;
+		case M_POWER_BUTTON: bmlisa_lisa_power_button(); leave = TRUE; break;
+		case M_RESTART:
+			if (osd_confirm("Restart", "Restart the Lisa? What isn't saved is lost."))
+				bmlisa_restart();
+			leave = TRUE;
 			break;
+		case M_NMI: bmlisa_lisa_nmi(); leave = TRUE; break;
+		case M_FAST: bmlisa_set_fast(!bmlisa_fast()); break;
+		case M_MACHINE: machine_menu(); break;
 		case M_VIDEO: video_menu(); break;
-		case M_SOUND: sound_menu(); break;
 		case M_NETWORK: network_menu(); break;
 		case M_ABOUT: about(); break;
 		case M_REBOOT:
-			if (osd_confirm("Reboot", "Reboot BMApple2?"))
+			if (osd_confirm("Reboot", "Reboot BMLisa?"))
 				power(0);
 			break;
 		case M_OFF:

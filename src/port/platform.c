@@ -1,46 +1,39 @@
 /*
- * platform.c - KEGS platform layer for BMApple2.
+ * platform.c - BMLisa's front end for IDLE, the Lisa emulator.
  *
- * Does what KEGS's front ends (xdriver.c, windriver.c, macdriver) do, on
- * top of the Circle kernel services in src/host.h: starts KEGS, runs its
- * main loop a frame (run_16ms()) at a time, copies its picture to the
- * display, and passes on keys, the mouse and the joysticks. Sound is in
- * snddrv.c, the joysticks in joystick.c, the menu in menu.c and osd.c.
+ * Does what IDLE's SDL front end (main_sdl.cpp) did, on top of the Circle
+ * kernel services in src/host.h: starts the Lisa (through lisa.cpp, which
+ * runs IDLE), runs it a frame at a time, shows its screen, and passes on
+ * keys and the mouse. The menu is in menu.c and osd.c.
  *
- * Picture: KEGS draws 32-bit pixels (0xRRGGBB, as its Windows front end
- * asks for them with video_set_*_mask(); KEGS works its colours out for
- * 8-bit fields) and reports the rectangles that changed each frame
- * (video_out_data()); only those are copied, converted to RGB565.
+ * Screen: the Lisa's is 720 x 364 pixels, one bit each; it is drawn into
+ * the frame buffer in the monitor's colour. Its pixels are taller than
+ * they are wide (the screen is 4:3).
  *
- * Timing: KEGS paces itself to the IIgs's 59.92 Hz with get_dtime() and
- * micro_sleep() (clock.c). Here those are BMApple2's: when the display
- * refreshes at (close to) that rate, each frame is shown on its own display
- * refresh and KEGS's sleep is skipped, so scrolling is perfectly smooth;
- * otherwise KEGS's sleep does the pacing.
+ * Timing: IDLE's Lisa runs 59.5 frames a second (LISA_FRAME_RATE). When
+ * the display refreshes at (close to) that rate, each frame is shown on its
+ * own display refresh, so the mouse moves smoothly; otherwise as many
+ * frames are run as the time since starting calls for.
  *
- * This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
- * the Raspberry Pi. See LICENSE for licensing details.
+ * This file is part of BMLisa, a bare metal Apple Lisa emulator for the
+ * Raspberry Pi. See LICENSE for licensing details.
  */
 
-#include "defc.h"
-
-#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "../host.h"
-#include "bmapple2.h"
+#include "bmlisa.h"
+#include "lisa.h"
 #include "osd.h"
-
-/* KEGS (protos.h declares them; the names are KEGS's). */
-extern int g_audio_enable;
-extern int g_limit_speed;
-extern int g_joystick_type;
-extern const char g_kegs_version_str[];
 
 /* ---- Settings ---------------------------------------------------------------- */
 
-const char *bmapple2_sd_root(void)
+const char *bmlisa_sd_root(void)
 {
 	return host_option("root", "/");
 }
@@ -54,50 +47,60 @@ static int option_on(const char *name, int default_value)
 	    || strcmp(value, "yes") == 0 || strcmp(value, "true") == 0;
 }
 
+/* PATH in the card's DIR folder ("" for the root). */
+static void card_path(char *path, size_t size, const char *dir, const char *name)
+{
+	const char *root = bmlisa_sd_root();
+	size_t len = strlen(root);
+	snprintf(path, size, "%s%s%s%s%s", root, len > 0 && root[len - 1] == '/' ? "" : "/",
+	         dir, dir[0] && name[0] ? "/" : "", name);
+}
+
+static void save_setting(const char *name, const char *value)
+{
+	if (!host_option_set(name, value) || !host_options_save())
+		printf("BMLisa: cannot save %s= in bmlisa.cfg\n", name);
+}
+
 /* ---- Video ------------------------------------------------------------------- */
 
-/* KEGS's window: the 640x400 Apple area and its borders, 704 x 462. KEGS's
-   picture is taller: its status lines (F5) are below that, up to
-   kegs_height lines, and video_out_data() writes them too. */
-#define FB_W X_A2_WINDOW_WIDTH
-#define FB_H X_A2_WINDOW_HEIGHT
+/* The frame buffer: the Lisa's screen, and room for the on-screen display's
+   640x460. */
+#define FB_W LISA_SCREEN_W
+#define FB_H 460
 
 static uint16_t *fb_pixels;
 static int fb_pitch_px;
-static word32 *kegs_pixels;     /* what video_out_data() writes */
-static int kegs_height;         /* its height (FB_W wide) */
-static Kimage *main_kimage;
 static int osd_view;
 
 static double refresh_rate = 60.0;
 static int vsync_lock;
 
-uint16_t *bmapple2_framebuffer(int *pitch_px)
+uint16_t *bmlisa_framebuffer(int *pitch_px)
 {
 	*pitch_px = fb_pitch_px;
 	return fb_pixels;
 }
 
-/* KEGS's 640x400 Apple area filled a 4:3 monitor, so its pixels are 5/6
-   as wide as they are high; aspect= in cmdline.txt multiplies that. */
-#define PIXEL_ASPECT (5.0 / 6.0)
-
+/* The Lisa's screen is 4:3 (its pixels about 2:3); aspect= in cmdline.txt
+   multiplies that. */
 static void apply_view(void)
 {
-	double aspect = (double) FB_W / FB_H * PIXEL_ASPECT
-	                * host_option_double("aspect", 1.0);
+	double aspect = 4.0 / 3.0 * host_option_double("aspect", 1.0);
 	if (osd_view)
 		host_video_set_view(0, 0, 640, 460, 640.0 / 460.0);
 	else
-		host_video_set_view(0, 0, FB_W, FB_H, aspect);
+		host_video_set_view(0, 0, LISA_SCREEN_W, LISA_SCREEN_H, aspect);
 }
 
-void bmapple2_osd_view(int on)
+static int redraw_all = TRUE;
+
+void bmlisa_osd_view(int on)
 {
 	osd_view = on;
 	apply_view();
-	if (!on && main_kimage != NULL)
-		video_set_x_refresh_needed(main_kimage, 1);
+	if (!on)
+		redraw_all = TRUE;
 }
 
 static void clear_framebuffer(void)
@@ -120,7 +123,7 @@ static void measure_refresh_rate(void)
 	rate = COUNT / (host_time() - start);
 	if (rate > 20.0 && rate < 250.0)
 		refresh_rate = rate;
-	printf("BMApple2: display refresh rate %.3f Hz\n", refresh_rate);
+	printf("BMLisa: display refresh rate %.3f Hz\n", refresh_rate);
 }
 
 static void update_sync_mode(void)
@@ -131,408 +134,311 @@ static void update_sync_mode(void)
 	else if (strcmp(mode, "on") == 0 || strcmp(mode, "1") == 0)
 		vsync_lock = TRUE;
 	else {
-		/* The IIgs and IIe run at 59.92 Hz: a 60 Hz display is right. */
-		double ratio = refresh_rate / VBL_RATE;
+		/* The Lisa's 59.5 Hz: a 60 Hz display is right. */
+		double ratio = refresh_rate / LISA_FRAME_RATE;
 		vsync_lock = ratio > 0.98 && ratio < 1.02;
 	}
-	printf("BMApple2: display %.2f Hz, machine %.2f Hz, %s\n", refresh_rate, VBL_RATE,
+	printf("BMLisa: display %.2f Hz, Lisa %.2f Hz, %s\n", refresh_rate, LISA_FRAME_RATE,
 	       vsync_lock ? "synchronised to the display" : "timer paced");
 }
 
-double bmapple2_refresh_rate(void)
+double bmlisa_refresh_rate(void)
 {
 	return refresh_rate;
 }
 
-int bmapple2_vsync_locked(void)
+int bmlisa_vsync_locked(void)
 {
 	return vsync_lock;
 }
 
-void bmapple2_video_settings_changed(void)
+void bmlisa_video_settings_changed(void)
 {
 	update_sync_mode();
 	apply_view();
 }
 
 /* The display's resolution setting changed (the Pi 5): the mode is set
-   again for the IIgs's rate (from BMA800XL). */
-void bmapple2_display_mode_changed(void)
+   again for the Lisa's rate (from BMA800XL). */
+void bmlisa_display_mode_changed(void)
 {
-	if (host_display_match_rate(VBL_RATE))
+	if (host_display_match_rate(LISA_FRAME_RATE))
 		measure_refresh_rate();
 	update_sync_mode();
-	bmapple2_sound_open();
 	apply_view();
 }
 
 /* ---- Monitors --------------------------------------------------------- */
 
-/* The monitor: a colour one, or a monochrome one in white, green or amber.
-   A monochrome monitor shows each pixel's brightness in its own colour, and
-   the Apple's monochrome switch ($C021, as a IIgs's Control Panel sets for
-   a monochrome monitor) is kept on, so Hi-Res is drawn as sharp dots
-   rather than in colours. */
+/* The Lisa's screen is white on black; green and amber are there for
+   those who like them. */
 static const struct {
 	const char *key;            /* monitor= */
 	const char *name;
-	int r, g, b;                /* the phosphor's colour */
-} monitors[BMAPPLE2_MONITORS] = {
-	{"color", "Colour", 0, 0, 0},
-	{"white", "Black and White", 0xff, 0xff, 0xff},
-	{"green", "Green", 0x33, 0xff, 0x33},
-	{"amber", "Amber", 0xff, 0xb0, 0x00},
+	uint16_t rgb565;            /* the phosphor's colour */
+} monitors[BMLISA_MONITORS] = {
+	{"white", "White", 0xffff},
+	{"green", "Green", (0x33 >> 3) << 11 | (0xff >> 2) << 5 | (0x33 >> 3)},
+	{"amber", "Amber", (0xff >> 3) << 11 | (0xb0 >> 2) << 5 | 0},
 };
 
 static int monitor;
-static int monitor_mono_set;         /* we turned the $C021 switch on */
-static uint8_t luma_r[256], luma_g[256], luma_b[256];
-static uint16_t mono_rgb565[256];
 
-extern int g_cur_a2_stat;
-extern word32 g_c034_val;
-extern dword64 g_cur_dfcyc;
-
-int bmapple2_monitor(void)
+int bmlisa_monitor(void)
 {
 	return monitor;
 }
 
-const char *bmapple2_monitor_name(int m)
+const char *bmlisa_monitor_name(int m)
 {
-	return m >= 0 && m < BMAPPLE2_MONITORS ? monitors[m].name : "";
+	return m >= 0 && m < BMLISA_MONITORS ? monitors[m].name : "";
 }
 
-static void set_monitor(int m)
+void bmlisa_set_monitor(int m)
 {
-	int i;
-	monitor = m >= 0 && m < BMAPPLE2_MONITORS ? m : 0;
-	/* Brightness, Rec. 601: 77, 150 and 29 out of 256 (at most 255). */
-	for (i = 0; i < 256; i++) {
-		luma_r[i] = (uint8_t) (i * 77 / 256);
-		luma_g[i] = (uint8_t) (i * 150 / 256);
-		luma_b[i] = (uint8_t) (i * 29 / 256);
-	}
-	for (i = 0; i < 256; i++) {
-		int r = monitors[monitor].r * i / 255;
-		int g = monitors[monitor].g * i / 255;
-		int b = monitors[monitor].b * i / 255;
-		mono_rgb565[i] = (uint16_t) (((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3));
-	}
-	if (main_kimage != NULL)
-		video_set_x_refresh_needed(main_kimage, 1);
-}
-
-/* Chooses the monitor, now and for the next boot. */
-void bmapple2_set_monitor(int m)
-{
-	if (m < 0 || m >= BMAPPLE2_MONITORS)
+	if (m < 0 || m >= BMLISA_MONITORS)
 		return;
-	if (!host_option_set("monitor", monitors[m].key) || !host_options_save())
-		printf("BMApple2: cannot save monitor= in bmapple2.cfg\n");
-	set_monitor(m);
+	save_setting("monitor", monitors[m].key);
+	monitor = m;
+	redraw_all = TRUE;
 }
 
 static int monitor_from_option(void)
 {
-	const char *want = host_option("monitor", "color");
+	const char *want = host_option("monitor", "white");
 	int m;
-	for (m = 0; m < BMAPPLE2_MONITORS; m++)
+	for (m = 0; m < BMLISA_MONITORS; m++)
 		if (strcmp(want, monitors[m].key) == 0)
 			return m;
 	return 0;
 }
 
-/* Each frame: keeps the monochrome switch on with a monochrome monitor
-   (the IIgs's ROM sets it from the Control Panel at every start), and
-   turns it off again once when going back to colour. */
-static void monitor_switch(void)
+/* The Lisa's screen into the frame buffer, when it changed: each bit set is
+   a black pixel. The bottom lines are drawn every frame, as the
+   notification is drawn over them. */
+static void copy_screen(void)
 {
-	int on = (g_cur_a2_stat & ALL_STAT_COLOR_C021) != 0;
-	if (monitor != 0 && !on) {
-		g_cur_a2_stat |= ALL_STAT_COLOR_C021;
-		change_display_mode(g_cur_dfcyc);
-		monitor_mono_set = TRUE;
-	} else if (monitor == 0 && monitor_mono_set) {
-		if (on) {
-			g_cur_a2_stat &= ~ALL_STAT_COLOR_C021;
-			change_display_mode(g_cur_dfcyc);
-		}
-		monitor_mono_set = FALSE;
-	}
-}
-
-/* The changed parts of KEGS's picture into the frame buffer. */
-/* Line Y, from X0 to X1, from KEGS's picture into the framebuffer. */
-static void copy_line(int y, int x0, int x1)
-{
-	const word32 *src = kegs_pixels + (size_t) y * FB_W;
-	uint16_t *dst = fb_pixels + (size_t) y * fb_pitch_px;
-	int x;
-	if (monitor == 0) {
-		for (x = x0; x < x1; x++) {
-			word32 p = src[x];
-			dst[x] = (uint16_t) (((p >> 8) & 0xf800) | ((p >> 5) & 0x07e0)
-			                     | ((p >> 3) & 0x001f));
-		}
-	} else {
-		for (x = x0; x < x1; x++) {
-			word32 p = src[x];
-			dst[x] = mono_rgb565[luma_r[(p >> 16) & 0xff]
-			                     + luma_g[(p >> 8) & 0xff] + luma_b[p & 0xff]];
+	int changed, y;
+	const uint8_t *screen = bmlisa_lisa_screen(&changed);
+	uint16_t on = monitors[monitor].rgb565;
+	int first = changed || redraw_all ? 0 : LISA_SCREEN_H - OSD_OVERLAY_LINES;
+	redraw_all = FALSE;
+	for (y = first; y < LISA_SCREEN_H; y++) {
+		const uint8_t *src = screen + (size_t) y * LISA_SCREEN_BYTES_PER_LINE;
+		uint16_t *dst = fb_pixels + (size_t) y * fb_pitch_px;
+		int x;
+		for (x = 0; x < LISA_SCREEN_BYTES_PER_LINE; x++) {
+			unsigned bits = src[x];
+			int b;
+			for (b = 0; b < 8; b++)
+				*dst++ = (bits & (0x80 >> b)) ? 0 : on;
 		}
 	}
-}
-
-static void copy_picture(void)
-{
-	Change_rect rect;
-	int i, y;
-	for (i = 0; i < MAX_CHANGE_RECTS; i++) {
-		if (!video_out_data(kegs_pixels, main_kimage, FB_W, &rect, i))
-			break;
-		if (rect.y + rect.height > kegs_height || rect.x + rect.width > FB_W)
-			continue;  /* never written: video_out_data() checks the same */
-		for (y = rect.y; y < rect.y + rect.height && y < FB_H; y++)
-			copy_line(y, rect.x, rect.x + rect.width < FB_W ? rect.x + rect.width : FB_W);
-	}
-	/* The bottom lines, where the notification and the disk activity are
-	   drawn, every frame: KEGS only sends what changed, so they would stay
-	   on the picture after they've gone. */
-	for (y = FB_H - OSD_OVERLAY_LINES; y < FB_H; y++) {
-		if (y < 0)
-			continue;
-		if (y < kegs_height)
-			copy_line(y, 0, FB_W);
-		else
-			memset(fb_pixels + (size_t) y * fb_pitch_px, 0, FB_W * sizeof(uint16_t));
-	}
-}
-
-/* ---- Disk activity -------------------------------------------------------- */
-
-/* While a 5.25" or 3.5" drive turns: its slot and drive, track and (3.5")
-   side at the bottom left of the picture, by a red light like a real
-   drive's, lit while the disk is read; "no disk" in red if the drive is
-   empty, so that a program stuck loading can be seen to be (from BMCoco).
-   Read from KEGS's IWM once a frame. Hard disks (SmartPort) aren't shown.
-   The disk_activity option (Video, Show Disk Activity) turns it off. */
-
-extern Iwm g_iwm;
-
-static int da_enabled = -1;
-static dword64 da_last_read;
-static double da_lit_until, da_shown_until;
-static char da_text[32];
-static int da_error;
-
-int bmapple2_disk_activity(void)
-{
-	if (da_enabled < 0)
-		da_enabled = host_option_int("disk_activity", 1) != 0;
-	return da_enabled;
-}
-
-void bmapple2_set_disk_activity(int on)
-{
-	da_enabled = on != 0;
-}
-
-static void draw_disk_activity(void)
-{
-	word32 state = g_iwm.state;
-	int is35 = (state & IWM_STATE_C031_APPLE35SEL) != 0;
-	int drive = (state & IWM_STATE_DRIVE_SEL) ? 1 : 0;
-	int turning = (state & (is35 ? IWM_STATE_MOTOR_ON35 : IWM_STATE_MOTOR_ON)) != 0;
-	Disk *dsk = is35 ? &g_iwm.drive35[drive] : &g_iwm.drive525[drive];
-	double now;
-	if (!bmapple2_disk_activity())
-		return;
-	now = host_time();
-	if (turning) {
-		int empty = dsk->name_ptr == 0 || dsk->name_ptr[0] == '\0';
-		if (dsk->dfcyc_last_read != da_last_read)
-			da_lit_until = now + 0.25;
-		da_last_read = dsk->dfcyc_last_read;
-		if (is35)
-			snprintf(da_text, sizeof da_text, "S5 D%d T%02u H%u%s", drive + 1,
-			         (unsigned) (dsk->cur_frac_track >> 17),
-			         (unsigned) ((dsk->cur_frac_track >> 16) & 1), empty ? " no disk" : "");
-		else
-			snprintf(da_text, sizeof da_text, "S6 D%d T%02u%s", drive + 1,
-			         (unsigned) (dsk->cur_frac_track >> 18), empty ? " no disk" : "");
-		da_error = empty;
-		da_shown_until = now + 2.0;
-	}
-	if (now > da_shown_until)
-		return;
-	osd_draw_disk_status(fb_pixels, fb_pitch_px, FB_W, FB_H, da_text,
-	                     now <= da_lit_until, da_error);
-}
-
-/* ---- Timing (clock.c's, renamed when it is compiled: see kegs.mk) -------- */
-
-double get_dtime(void)
-{
-	return host_time();
-}
-
-int micro_sleep(double dtime)
-{
-	if (dtime <= 0.0)
-		return 0;
-	/* With the display doing the pacing, waiting for the next refresh
-	   is the sleep. */
-	if (vsync_lock && !osd_view)
-		return 0;
-	if (dtime > 0.25)
-		dtime = 0.25;
-	host_sleep_us((unsigned) (dtime * 1000000.0));
-	return 0;
 }
 
 /* ---- Files ---------------------------------------------------------------- */
 
-/* KEGS writes to disk images as the IIgs writes to its disks, with nothing
-   kept back to write later, but the SD card's file system caches what it can.
-   Since the Pi can be switched off at any time, push everything out to the
-   card once a second. */
+/* IDLE writes to the hard disk and floppy images as the Lisa writes to its
+   disks, but the SD card's file system caches what it can. Since the Pi can
+   be switched off at any time, push everything out to the card once a
+   second, and the parameter memory (lisa.h) if it changed. */
 static void sync_files(void)
 {
 	int fd;
+	if (!bmlisa_lisa_save_parameter_memory())
+		printf("BMLisa: cannot save the parameter memory\n");
 	fflush(NULL);
 	for (fd = 3; fd < 30; fd++)
 		fsync(fd);
 }
 
-/* ---- Starting ----------------------------------------------------------- */
+/* ---- Models and ROMs ------------------------------------------------------ */
 
-/* KEGS stops if config.kegs isn't there (it only writes one it has read),
-   so a new card gets an empty one, as KEGS's own first run would write. */
-static void create_config(const char *path)
+/* The models, in the order BMLisa prefers them, with IDLE's names for their
+   boot ROM's two chips (mmu.c, MemInit()). Both need the video state PROM,
+   vidstate.rom, too. MAME's lisa2.zip has the Lisa 2's under these names. */
+static const struct {
+	const char *key;            /* machine= in cmdline.txt / bmlisa.cfg */
+	const char *name;
+	int model;                  /* IDLE's */
+	const char *rom_hi, *rom_lo;
+} machines[BMLISA_MACHINES] = {
+	{"lisa2", "Lisa 2", LISA_MODEL_2, "341-0175-h", "341-0176-h"},
+	{"lisa1", "Lisa 1", LISA_MODEL_1, "L175REVC.bin", "L176REVC.bin"},
+};
+
+static int current_machine = -1;
+static char rom_dir[256];
+
+static int rom_is_there(const char *name, long size)
 {
+	char path[320];
+	struct stat st;
+	snprintf(path, sizeof path, "%s/%s", rom_dir, name);
+	return stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == size;
+}
+
+int bmlisa_machine_available(int machine)
+{
+	return machine >= 0 && machine < BMLISA_MACHINES
+	    && rom_is_there(machines[machine].rom_hi, 8192)
+	    && rom_is_there(machines[machine].rom_lo, 8192)
+	    && rom_is_there("vidstate.rom", 256);
+}
+
+/* The model to start: machine= if its ROMs are there, else the first that
+   has them. */
+static int choose_machine(void)
+{
+	const char *want = host_option("machine", "auto");
+	int m;
+	for (m = 0; m < BMLISA_MACHINES; m++)
+		if (strcmp(want, machines[m].key) == 0 && bmlisa_machine_available(m))
+			return m;
+	for (m = 0; m < BMLISA_MACHINES; m++)
+		if (bmlisa_machine_available(m))
+			return m;
+	return -1;
+}
+
+int bmlisa_machine(void)
+{
+	return current_machine;
+}
+
+const char *bmlisa_machine_name(int machine)
+{
+	return machine >= 0 && machine < BMLISA_MACHINES ? machines[machine].name : "none";
+}
+
+/* IDLE starts its Lisa once: another model starts after a reboot. */
+void bmlisa_set_machine(int machine)
+{
+	if (!bmlisa_machine_available(machine) || machine == current_machine)
+		return;
+	save_setting("machine", machines[machine].key);
+	bmlisa_request_power(0);
+}
+
+/* ---- Speed ------------------------------------------------------------------ */
+
+static int fast;
+
+int bmlisa_fast(void)
+{
+	return fast;
+}
+
+void bmlisa_set_fast(int on)
+{
+	fast = on != 0;
+}
+
+/* ---- Disks ------------------------------------------------------------------ */
+
+static char hard_disk[512];
+static char floppy_name[2][512];
+
+const char *bmlisa_hard_disk(void)
+{
+	return hard_disk;
+}
+
+/* A Lisa 1 has two floppy drives, a Lisa 2 one. */
+const char *bmlisa_floppy(int drive)
+{
+	return drive >= 0 && drive < 2 && floppy_name[drive][0] ? floppy_name[drive] : NULL;
+}
+
+int bmlisa_insert_floppy(const char *path, int drive)
+{
+	if (bmlisa_lisa_floppy_drives() == 1)
+		drive = 0;
+	if (drive < 0 || drive > 1 || !bmlisa_lisa_insert_floppy(path, drive)) {
+		printf("BMLisa: cannot use %s as a floppy\n", path);
+		return FALSE;
+	}
+	printf("BMLisa: floppy %s in drive %d\n", path, drive + 1);
+	snprintf(floppy_name[drive], sizeof floppy_name[drive], "%s", path);
+	return TRUE;
+}
+
+/* The hard disk image from harddisk= (a path on the card), or
+   disks/profile.raw; made, blank (10 MB, as a ProFile-10), if it isn't
+   there, so that an operating system can be installed on it. */
+static int open_hard_disk(void)
+{
+	const char *want = host_option("harddisk", "");
 	struct stat st;
 	FILE *f;
-	if (stat(path, &st) == 0)
-		return;
-	f = fopen(path, "w");
-	if (f == NULL) {
-		printf("BMApple2: cannot create %s\n", path);
-		return;
+	if (want[0] == '/')
+		snprintf(hard_disk, sizeof hard_disk, "%s", want);
+	else if (want[0] != '\0')
+		card_path(hard_disk, sizeof hard_disk, "", want);
+	else
+		card_path(hard_disk, sizeof hard_disk, "disks", "profile.raw");
+	if (stat(hard_disk, &st) != 0) {
+		if (bmlisa_lisa_make_hard_disk(hard_disk, TRUE))
+			printf("BMLisa: made a blank hard disk, %s\n", hard_disk);
+		else
+			printf("BMLisa: cannot make a hard disk, %s\n", hard_disk);
 	}
-	fprintf(f, "# KEGS configuration file version %s\n", g_kegs_version_str);
+	f = fopen(hard_disk, "rb+");
+	if (f == NULL) {
+		printf("BMLisa: cannot open the hard disk %s\n", hard_disk);
+		return FALSE;
+	}
 	fclose(f);
-	printf("BMApple2: created %s\n", path);
+	printf("BMLisa: hard disk %s\n", hard_disk);
+	return TRUE;
 }
 
-/* ---- Restarting -------------------------------------------------------------- */
-
-/* Boots the machine again, as switching it off and on does: the power-up
-   byte is made wrong ($3F4 is $3F3 XOR $A5 once the machine has started),
-   which every Apple II ROM takes as a power on, and the machine is reset. */
-void bmapple2_restart(void)
-{
-	set_memory_c(0x3f4, (get_memory_c(0x3f3) ^ 0xa5) ^ 0xff, 0);
-	do_reset();
-}
-
-/* ---- Starting a disk image ------------------------------------------------ */
-
-/* Which slot boots an image: 6 for 5.25" disks, 5 for 3.5" ones, 7 (KEGS's
-   SmartPort hard disks) for anything bigger. A WOZ image says which drive
-   it is for (its INFO chunk); the others go by size, which is enough to
-   tell 140K (plus a 2MG or nibble image's extra) from 800K from more. */
-static int boot_slot(const char *path)
+/* A ProFile image is blocks of 532 bytes, 5 or 10 MB. */
+static int is_hard_disk_image(const char *path)
 {
 	struct stat st;
-	const char *dot = strrchr(path, '.');
-	if (dot != NULL && strcasecmp(dot, ".woz") == 0) {
-		unsigned char header[22];
-		FILE *f = fopen(path, "rb");
-		int disk_type = 0;
-		if (f != NULL) {
-			if (fread(header, 1, sizeof header, f) == sizeof header
-			    && memcmp(header + 12, "INFO", 4) == 0)
-				disk_type = header[21];
-			fclose(f);
-		}
-		return disk_type == 2 ? 5 : 6;
-	}
-	if (stat(path, &st) != 0)
-		return -1;
-	if (st.st_size <= 300 * 1024)
-		return 6;
-	if (st.st_size <= 900 * 1024)
-		return 5;
-	return 7;
+	return stat(path, &st) == 0 && st.st_size >= 0x2600L * 532 && st.st_size % 532 == 0;
 }
 
-/* The IIgs's battery RAM (clock.c): the Control Panel's settings, ending in
-   a checksum the ROM checks at start up (and sets them all back to their
-   defaults if it is wrong). */
-extern byte *g_bram_ptr;
-extern int g_rom_version;
-extern int g_config_kegs_update_needed;
-#define BRAM_STARTUP_SLOT 0x28      /* 0 is "Scan" */
-
-/* Changes one battery RAM setting, checksum and all: going down from $FA,
-   the sum is rotated left and the 16-bit word there added; $FC-$FD hold
-   it and $FE-$FF the same XOR $AAAA (worked out from saved battery RAM,
-   and the same for ROM 01 and ROM 3). */
-static void bram_set(int offset, int value)
+int bmlisa_set_hard_disk(const char *path)
 {
-	unsigned sum = 0;
-	int i;
-	g_bram_ptr[offset] = (byte) value;
-	for (i = 0xfa; i >= 0; i--) {
-		sum = ((sum << 1) | (sum >> 15)) & 0xffff;
-		sum = (sum + (g_bram_ptr[i] | (g_bram_ptr[i + 1] << 8))) & 0xffff;
+	char old[sizeof hard_disk];
+	if (!is_hard_disk_image(path))
+		return FALSE;
+	snprintf(old, sizeof old, "%s", hard_disk);
+	snprintf(hard_disk, sizeof hard_disk, "%s", path);
+	bmlisa_lisa_set_paths(rom_dir, hard_disk);
+	if (!bmlisa_lisa_reopen_hard_disk()) {
+		snprintf(hard_disk, sizeof hard_disk, "%s", old);
+		bmlisa_lisa_set_paths(rom_dir, hard_disk);
+		return FALSE;
 	}
-	g_bram_ptr[0xfc] = (byte) (sum & 0xff);
-	g_bram_ptr[0xfd] = (byte) (sum >> 8);
-	g_bram_ptr[0xfe] = (byte) ((sum ^ 0xaaaa) & 0xff);
-	g_bram_ptr[0xff] = (byte) ((sum ^ 0xaaaa) >> 8);
-	g_config_kegs_update_needed = 1;     /* KEGS saves it in config.kegs */
+	save_setting("harddisk", hard_disk);
+	printf("BMLisa: hard disk %s\n", hard_disk);
+	bmlisa_restart();
+	return TRUE;
 }
 
-/* While a 5.25" disk is being started on a IIgs: frames until the startup
-   slot is set back, and what it was. */
-static int startup_slot_frames;
-static int startup_slot_saved;
+/* ---- Power ---------------------------------------------------------------- */
 
-static void startup_slot_continue(void)
+/* The Lisa switched itself off (its software shut down): its screen goes
+   dark until a key or the mouse button switches it on. */
+static int lisa_off;
+
+void bmlisa_restart(void)
 {
-	if (startup_slot_frames > 0 && --startup_slot_frames == 0) {
-		bram_set(BRAM_STARTUP_SLOT, startup_slot_saved);
-		printf("BMApple2: startup slot set back to %d\n", startup_slot_saved);
-	}
+	lisa_off = FALSE;
+	bmlisa_lisa_power_on();
+	redraw_all = TRUE;
 }
 
-/* Puts PATH in drive 1 of the slot that boots it and restarts. Drive 1 of
-   the slots above it is emptied (F4 puts those disks back): with slot 7
-   empty KEGS goes on to slot 5, and a IIe on to slot 6. A IIgs doesn't go
-   on from slot 5 to slot 6, so for a 5.25" disk its startup slot (the
-   Control Panel's, "Scan" by default) is set to 6 for this start, then set
-   back once the disk has started. */
-static void autostart(const char *path)
+static void lisa_switched_off(void)
 {
-	int slot = boot_slot(path);
-	int s;
-	if (slot < 0) {
-		printf("Web UI: cannot start %s: not found\n", path);
-		return;
-	}
-	printf("Web UI: starting %s from slot %d\n", path, slot);
-	for (s = 7; s > slot; s--)
-		iwm_eject_disk_by_num(s, 0);
-	insert_disk(slot, 0, path, 0, NULL, -1, 0);
-	if (slot == 6 && g_rom_version != 0) {
-		if (startup_slot_frames == 0)
-			startup_slot_saved = g_bram_ptr[BRAM_STARTUP_SLOT];
-		bram_set(BRAM_STARTUP_SLOT, 6);
-		startup_slot_frames = 10 * 60;
-	}
-	bmapple2_restart();
+	lisa_off = TRUE;
+	clear_framebuffer();
+	osd_notify("The Lisa is off: a key or click switches it on.");
+	printf("BMLisa: the Lisa switched itself off\n");
+	sync_files();
 }
 
 /* ---- Requests from the web UI ------------------------------------------ */
@@ -542,13 +448,13 @@ static volatile int request_coldstart = FALSE;
 static char autostart_path[600];
 static volatile int request_autostart = FALSE;
 
-void bmapple2_request_power(int power_off)
+void bmlisa_request_power(int power_off)
 {
 	request_power = power_off ? 1 : 0;
 }
 
 /* Called by the web UI. */
-void bmapple2_request_coldstart(void)
+void bmlisa_request_coldstart(void)
 {
 	request_coldstart = TRUE;
 }
@@ -564,9 +470,23 @@ void emu_autostart_interrupt(const char *path)
 	request_autostart = TRUE;
 }
 
-int bmapple2_pending_requests(void)
+int bmlisa_pending_requests(void)
 {
 	return request_power >= 0 || request_coldstart || request_autostart;
+}
+
+/* A hard disk image becomes the hard disk (and the Lisa starts from it); a
+   floppy image goes in the drive. */
+static void autostart(const char *path)
+{
+	if (is_hard_disk_image(path)) {
+		printf("Web UI: starting %s\n", path);
+		if (!bmlisa_set_hard_disk(path))
+			printf("Web UI: cannot use %s\n", path);
+	} else {
+		printf("Web UI: inserting %s\n", path);
+		bmlisa_insert_floppy(path, 0);
+	}
 }
 
 static void handle_requests(void)
@@ -579,7 +499,7 @@ static void handle_requests(void)
 	if (request_coldstart) {
 		request_coldstart = FALSE;
 		printf("Web UI: restart\n");
-		bmapple2_restart();
+		bmlisa_restart();
 	}
 	if (request_power >= 0) {
 		int power_off = request_power;
@@ -595,10 +515,9 @@ static void handle_requests(void)
 
 static double last_sync_time;
 
-void bmapple2_idle(void)
+void bmlisa_idle(void)
 {
 	double now = host_time();
-	bmapple2_feed_silence();
 	if (now - last_sync_time >= 1.0) {
 		last_sync_time = now;
 		sync_files();
@@ -607,251 +526,22 @@ void bmapple2_idle(void)
 		handle_requests();
 }
 
-/* ---- ROM --------------------------------------------------------------- */
-
-/* PATH in the card's DIR folder ("" for the root). */
-static void card_path(char *path, size_t size, const char *dir, const char *name)
-{
-	const char *root = bmapple2_sd_root();
-	size_t len = strlen(root);
-	snprintf(path, size, "%s%s%s%s%s", root, len > 0 && root[len - 1] == '/' ? "" : "/",
-	         dir, dir[0] ? "/" : "", name);
-}
-
-/* Reads exactly SIZE bytes of roms/NAME into BUF. */
-static int read_rom_part(const char *name, unsigned char *buf, size_t size)
-{
-	char path[256];
-	struct stat st;
-	FILE *f;
-	size_t got;
-	card_path(path, sizeof path, "roms", name);
-	if (stat(path, &st) != 0 || (size_t) st.st_size != size)
-		return FALSE;
-	f = fopen(path, "rb");
-	if (f == NULL)
-		return FALSE;
-	got = fread(buf, 1, size, f);
-	fclose(f);
-	return got == size;
-}
-
-static void write_rom(const char *name, const unsigned char *data, size_t size)
-{
-	char path[256];
-	FILE *f;
-	card_path(path, sizeof path, "roms", name);
-	f = fopen(path, "wb");
-	if (f == NULL || fwrite(data, 1, size, f) != size) {
-		printf("BMApple2: cannot write %s\n", path);
-		if (f != NULL)
-			fclose(f);
-		return;
-	}
-	fclose(f);
-	printf("BMApple2: made %s\n", path);
-}
-
-/* MAME's ROM sets (Ample's too) have the chips, not ROM files: for the
-   IIgs ROM 3, apple2gs.zip's 341-0728 and 341-0748, the second with its
-   halves the other way round (MAME's apple2gs.cpp); for the enhanced IIe,
-   apple2e.zip's apple2ee/342-0304-a.e10 ($C000-$DFFF) and 342-0303-a.e8
-   ($E000-$FFFF) (or the unenhanced IIe's 342-0135-b.64 and 342-0134-a.64,
-   from the same zip), and a2diskiing.zip's 341-0027-a.p5 (the Disk II card's
-   PROM, at $600 in KEGS's IIe ROM file). Made into ROM.03 and APPLE2E.ROM
-   once, when those aren't there yet. */
-static void make_roms(void)
-{
-	char path[256];
-	struct stat st;
-	unsigned char *buf;
-
-	card_path(path, sizeof path, "roms", "ROM.03");
-	if (stat(path, &st) != 0) {
-		buf = malloc(256 * 1024);
-		if (buf != NULL && read_rom_part("341-0728", buf, 128 * 1024)
-		    && read_rom_part("341-0748", buf + 128 * 1024, 128 * 1024)) {
-			unsigned char *half = malloc(64 * 1024);
-			if (half != NULL) {
-				memcpy(half, buf + 128 * 1024, 64 * 1024);
-				memmove(buf + 128 * 1024, buf + 192 * 1024, 64 * 1024);
-				memcpy(buf + 192 * 1024, half, 64 * 1024);
-				free(half);
-				write_rom("ROM.03", buf, 256 * 1024);
-			}
-		}
-		free(buf);
-	}
-
-	card_path(path, sizeof path, "roms", "APPLE2E.ROM");
-	if (stat(path, &st) != 0) {
-		buf = calloc(32 * 1024, 1);
-		if (buf != NULL
-		    && ((read_rom_part("342-0304-a.e10", buf + 16 * 1024, 8 * 1024)
-		         && read_rom_part("342-0303-a.e8", buf + 24 * 1024, 8 * 1024))
-		        || (read_rom_part("342-0135-b.64", buf + 16 * 1024, 8 * 1024)
-		            && read_rom_part("342-0134-a.64", buf + 24 * 1024, 8 * 1024)))) {
-			if (!read_rom_part("341-0027-a.p5", buf + 0x600, 256))
-				printf("BMApple2: no 341-0027-a.p5: the IIe has no Disk II card\n");
-			write_rom("APPLE2E.ROM", buf, 32 * 1024);
-		}
-		free(buf);
-	}
-}
-
-/* ---- Machines ------------------------------------------------------------ */
-
-/* The machines, in the order BMApple2 prefers them, each with the names its
-   ROM file usually has (KEGS's list, config.c, and those of other
-   emulators' ROM sets) and its size. A file just called ROM is whichever
-   machine its size says. */
-static const struct {
-	const char *key;            /* machine= in cmdline.txt / bmapple2.cfg */
-	const char *name;
-	long size;
-	const char *files[7];
-} machines[BMAPPLE2_MACHINES] = {
-	{"iigs3", "Apple IIgs, ROM 3", 256 * 1024,
-	 {"ROM.03", "ROM03", "APPLE2GS.ROM2", "Rom03gd", NULL}},
-	{"iigs1", "Apple IIgs, ROM 01", 128 * 1024,
-	 {"ROM.01", "ROM01", "APPLE2GS.ROM", "342-0077-b", "xgs.rom", "XGS.ROM", NULL}},
-	{"iie", "Apple IIe", 32 * 1024,
-	 {"APPLE2E.ROM", NULL}},
-};
-
-/* Each machine's ROM file, or "" if there is none. */
-static char machine_rom[BMAPPLE2_MACHINES][256];
-static int current_machine = -1;
-
-static int rom_file_is(const char *path, long size)
-{
-	struct stat st;
-	return stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == size;
-}
-
-/* Looks for each machine's ROM in the roms folder, then the card's root.
-   KEGS's own search (g_kegs_default_paths) works from the current folder
-   and HOME, which a bare metal kernel doesn't have, so the ROM is passed to
-   KEGS with -rom. */
-static void find_roms(void)
-{
-	static const char *const dirs[] = {"roms", "", NULL};
-	int m, d, n;
-	make_roms();
-	for (m = 0; m < BMAPPLE2_MACHINES; m++) {
-		machine_rom[m][0] = '\0';
-		for (d = 0; dirs[d] != NULL && machine_rom[m][0] == '\0'; d++) {
-			for (n = 0; machines[m].files[n] != NULL; n++) {
-				card_path(machine_rom[m], sizeof machine_rom[m], dirs[d],
-				          machines[m].files[n]);
-				if (rom_file_is(machine_rom[m], machines[m].size))
-					break;
-				machine_rom[m][0] = '\0';
-			}
-			if (machine_rom[m][0] == '\0') {
-				card_path(machine_rom[m], sizeof machine_rom[m], dirs[d], "ROM");
-				if (!rom_file_is(machine_rom[m], machines[m].size))
-					machine_rom[m][0] = '\0';
-			}
-		}
-	}
-}
-
-/* The machine to start: machine= if its ROM is there, else the first that
-   has one. */
-static int choose_machine(void)
-{
-	const char *want = host_option("machine", "auto");
-	int m;
-	for (m = 0; m < BMAPPLE2_MACHINES; m++)
-		if (strcmp(want, machines[m].key) == 0 && machine_rom[m][0] != '\0')
-			return m;
-	for (m = 0; m < BMAPPLE2_MACHINES; m++)
-		if (machine_rom[m][0] != '\0')
-			return m;
-	return -1;
-}
-
-int bmapple2_machine(void)
-{
-	return current_machine;
-}
-
-const char *bmapple2_machine_name(int machine)
-{
-	return machine >= 0 && machine < BMAPPLE2_MACHINES ? machines[machine].name : "none";
-}
-
-int bmapple2_machine_available(int machine)
-{
-	return machine >= 0 && machine < BMAPPLE2_MACHINES && machine_rom[machine][0] != '\0';
-}
-
-const char *bmapple2_rom_file(void)
-{
-	return current_machine >= 0 ? machine_rom[current_machine] : NULL;
-}
-
-/* The machine's own speed: 1 MHz for an Apple IIe, the IIgs's 2.8 MHz,
-   rather than KEGS's default of an 8 MHz ZipGS accelerator, which the Pi 2
-   and 3 can't always keep up with, and which runs old games too fast. */
-static void set_machine_speed(int machine)
-{
-	g_limit_speed = machine == BMAPPLE2_IIE ? 1 : 2;
-}
-
-/* Switches to MACHINE (its ROM is loaded, as F4's ROM File does) and
-   starts it, and keeps the choice for the next boot. */
-void bmapple2_set_machine(int machine)
-{
-	if (!bmapple2_machine_available(machine) || machine == current_machine)
-		return;
-	current_machine = machine;
-	if (!host_option_set("machine", machines[machine].key) || !host_options_save())
-		printf("BMApple2: cannot save machine= in bmapple2.cfg\n");
-	printf("BMApple2: machine %s, ROM %s\n", machines[machine].name, machine_rom[machine]);
-	cfg_file_update_rom(machine_rom[machine]);
-	set_machine_speed(machine);
-	bmapple2_restart();
-	/* A IIe has no border colour ($C034): a IIgs's would stay. */
-	if (machine == BMAPPLE2_IIE) {
-		clock_write_c034(g_c034_val & ~0xf);
-		change_border_color(g_cur_dfcyc, 0);
-	}
-	clear_framebuffer();
-	video_set_x_refresh_needed(main_kimage, 1);
-}
-
-void bmapple2_kegs_config(void)
-{
-	cfg_toggle_config_panel();
-}
-
 /* ---- Input --------------------------------------------------------------- */
 
 static int open_menu;
+static int caps_locked;
 static int pad_last_menu[HOST_PADS];
-static int pad_last_keys[HOST_PADS];
-
-/* Gamepad buttons that are keys, as in BMCoco: X is Space, Y is Return. */
-static const struct {
-	int bit;
-	int adb;
-} pad_keys[] = {
-	{HOST_PAD_X, 0x31},
-	{HOST_PAD_Y, 0x24},
-};
 
 static void process_input(void)
 {
 	int usage, pressed, pad, dx, dy, buttons;
+	static int last_buttons;
 
 	while (host_key_event(&usage, &pressed)) {
-		int adb;
-		/* The power key: Shut Down (the Pi 400 sends it for Fn+F10). */
-		if (usage == USAGE_POWER) {
-			if (pressed)
-				bmapple2_request_power(1);
+		int code;
+		if (usage == USAGE_POWER || usage == KEY_POWER) {
+			if (pressed && !lisa_off)
+				bmlisa_lisa_power_button();
 			continue;
 		}
 		if (usage == KEY_MENU) {
@@ -859,24 +549,40 @@ static void process_input(void)
 				open_menu = TRUE;
 			continue;
 		}
-		adb = bmapple2_usage_to_adb(usage);
-		if (adb >= 0)
-			adb_physical_key_update(main_kimage, adb, 0, !pressed);
+		if (lisa_off) {
+			if (pressed)
+				bmlisa_restart();
+			continue;
+		}
+		code = bmlisa_usage_to_lisa(usage);
+		if (code < 0)
+			continue;
+		if (usage == USAGE_CAPS_LOCK) {
+			/* Locks down on the Lisa: pressed once, released the next
+			   time. */
+			if (!pressed)
+				continue;
+			caps_locked = !caps_locked;
+			pressed = caps_locked;
+		}
+		bmlisa_lisa_key(code, pressed);
 	}
 
 	if (host_mouse_read(&dx, &dy, &buttons)) {
-		/* 0x1000: x and y are deltas (adb.c). Only the left button: the
-		   IIgs mouse has one. KEGS takes its desktop versions' middle
-		   button (bit 1) as a request to stop in its debugger, and the
-		   right (bit 2) as one to change speed; the USB mouse gives
-		   right as bit 1 and middle as bit 2, so passed on as they
-		   were, the right button froze the emulation and the wheel's
-		   click changed its speed. */
-		adb_update_mouse(main_kimage, dx, dy, buttons & 1, 0x1000 | 1);
+		if (lisa_off) {
+			if ((buttons & 1) && !(last_buttons & 1))
+				bmlisa_restart();
+		} else {
+			if (dx != 0 || dy != 0)
+				bmlisa_lisa_mouse(dx, dy);
+			/* The Lisa's mouse has one button: any of the USB mouse's. */
+			if ((buttons != 0) != (last_buttons != 0))
+				bmlisa_lisa_mouse_button(buttons != 0);
+		}
+		last_buttons = buttons;
 	}
 
-	/* Gamepad Home, or Select and Start together, open the menu (A, B and
-	   the stick are the joystick: joystick.c). */
+	/* Gamepad Home, or Select and Start together, open the menu. */
 	for (pad = 0; pad < HOST_PADS; pad++) {
 		int state = host_pad_state(pad);
 		int menu;
@@ -887,20 +593,6 @@ static void process_input(void)
 		if (menu && !pad_last_menu[pad])
 			open_menu = TRUE;
 		pad_last_menu[pad] = menu;
-	}
-
-	/* X and Y, from any gamepad. */
-	for (pad = 0; pad < HOST_PADS; pad++) {
-		int state = host_pad_state(pad);
-		unsigned k;
-		if (state < 0)
-			state = 0;
-		for (k = 0; k < sizeof pad_keys / sizeof pad_keys[0]; k++) {
-			int down = (state & pad_keys[k].bit) != 0;
-			if (down != ((pad_last_keys[pad] & pad_keys[k].bit) != 0))
-				adb_physical_key_update(main_kimage, pad_keys[k].adb, 0, !down);
-		}
-		pad_last_keys[pad] = state;
 	}
 }
 
@@ -921,15 +613,37 @@ static void show_network_address(void)
 	}
 }
 
-void bmapple2_main(void)
+static void stop_with(const char *message)
 {
-	static char cfg_path[256];
-	static char *argv[8];
-	int argc = 0, pitch;
-	double last_second;
+	osd_open();
+	osd_message(message, FALSE);
+	for (;;) {
+		bmlisa_idle();
+		handle_requests();
+		host_video_present(TRUE);
+	}
+}
+
+/* Runs a frame of the Lisa; returns FALSE if it can't go on. */
+static int run_frame(void)
+{
+	int r;
+	if (lisa_off)
+		return TRUE;
+	r = bmlisa_lisa_run_frame();
+	if (r == 1)
+		lisa_switched_off();
+	return r >= 0;
+}
+
+void bmlisa_main(void)
+{
+	int pitch;
+	const char *err;
+	double last_second, start, frames_run;
 
 	if (host_video_init(FB_W, FB_H, &fb_pixels, &pitch) != 0) {
-		printf("BMApple2: no display\n");
+		printf("BMLisa: no display\n");
 		for (;;)
 			host_sleep_us(1000000);
 	}
@@ -937,104 +651,94 @@ void bmapple2_main(void)
 	clear_framebuffer();
 	apply_view();
 	/* Where the host can set the video mode (the Pi 4), the display runs
-	   at the IIgs's (and KEGS's IIe's) 59.92 Hz, then it is timed. */
-	host_display_match_rate(VBL_RATE);
+	   at the Lisa's 59.5 Hz, then it is timed. */
+	host_display_match_rate(LISA_FRAME_RATE);
 	measure_refresh_rate();
 	update_sync_mode();
+	monitor = monitor_from_option();
 
-	/* config.kegs (disks, settings) in the card's root; the ROM found. */
-	snprintf(cfg_path, sizeof(cfg_path), "%s%sconfig.kegs", bmapple2_sd_root(),
-	         bmapple2_sd_root()[strlen(bmapple2_sd_root()) - 1] == '/' ? "" : "/");
-	create_config(cfg_path);
-	argv[argc++] = "bmapple2";
-	if (getenv("BMAPPLE2_KEGS_NOIGNHALT"))
-		argv[argc++] = "-noignhalt";
-	argv[argc++] = "-cfg";
-	argv[argc++] = cfg_path;
-	find_roms();
-	current_machine = choose_machine();
-	if (current_machine >= 0) {
-		argv[argc++] = "-rom";
-		argv[argc++] = machine_rom[current_machine];
-		printf("BMApple2: %s, ROM %s\n", machines[current_machine].name,
-		       machine_rom[current_machine]);
-	} else {
-		/* KEGS then opens its configuration screen to choose one. */
-		printf("BMApple2: no Apple IIgs or IIe ROM in roms/ (see roms/ROMS.txt)\n");
+	card_path(rom_dir, sizeof rom_dir, "roms", "");
+	{
+		/* The Lisa's battery-backed settings (lisa.h). */
+		char pram[512];
+		card_path(pram, sizeof pram, "", "bmlisa.pram");
+		bmlisa_lisa_set_parameter_memory_file(pram);
 	}
-	argv[argc] = NULL;
-	if (parse_argv(argc, argv, 1) != 0)
-		printf("BMApple2: KEGS didn't like its arguments\n");
-
-	g_audio_enable = option_on("sound", TRUE) ? 1 : 0;
-
-	/* 0xRRGGBB pixels (see the top). */
-	video_set_red_mask(0xff0000);
-	video_set_green_mask(0x00ff00);
-	video_set_blue_mask(0x0000ff);
-	video_set_alpha_mask(0);
-	/* The Apple II's 16 colours, from the masks (as KEGS's front ends do);
-	   Super Hi-Res works its own out as it goes. */
-	video_set_palette();
-
-	/* The joystick is the gamepads and GPIO joysticks (joystick.c), KEGS's
-	   "Native Joystick 1", rather than its default of the keypad. Set
-	   before KEGS reads config.kegs, it is the default, so a choice made
-	   in KEGS's settings (F4) still sticks. */
-	g_joystick_type = 2;
-
-	/* The machine's own speed (set_machine_speed()). As with the joystick,
-	   a speed chosen with F6 or F4 still sticks. */
-	set_machine_speed(current_machine);
-
-	if (kegs_init(32, FB_W, FB_H, 1) != 0) {
-		osd_open();
-		osd_message("KEGS did not start. The log (see the User Guide) says why.", FALSE);
-		for (;;) {
-			bmapple2_idle();
-			host_video_present(TRUE);
+	current_machine = choose_machine();
+	if (current_machine < 0) {
+		printf("BMLisa: no Lisa ROMs in roms/ (see roms/ROMS.txt)\n");
+		stop_with("There are no Lisa ROMs in the roms folder. See roms/ROMS.txt on the card.");
+	}
+	if (!open_hard_disk())
+		stop_with("The hard disk image could not be opened or made: is the card full, or locked?");
+	bmlisa_lisa_set_paths(rom_dir, hard_disk);
+	printf("BMLisa: %s, ROMs %s and %s\n", machines[current_machine].name,
+	       machines[current_machine].rom_hi, machines[current_machine].rom_lo);
+	err = bmlisa_lisa_start(machines[current_machine].model);
+	if (err != NULL) {
+		printf("BMLisa: %s\n", err);
+		stop_with(err);
+	}
+	{
+		const char *floppy = host_option("floppy", "");
+		if (floppy[0] != '\0') {
+			char path[512];
+			if (floppy[0] == '/')
+				snprintf(path, sizeof path, "%s", floppy);
+			else
+				card_path(path, sizeof path, "", floppy);
+			bmlisa_insert_floppy(path, 0);
 		}
 	}
-	main_kimage = video_get_kimage(0);
-	video_set_active(main_kimage, 1);
-	set_monitor(monitor_from_option());
-	video_update_scale(main_kimage, FB_W, FB_H, 1);
-	/* The whole picture, status lines included (see FB_H). */
-	/* The status lines come and go (F5), so leave room for many. */
-	kegs_height = main_kimage->a2_height + 256;
-	if (kegs_height < 1024)
-		kegs_height = 1024;
-	if (main_kimage->a2_width_full > FB_W)
-		printf("BMApple2: KEGS's picture is %d wide, expected %d\n",
-		       main_kimage->a2_width_full, FB_W);
-	kegs_pixels = calloc((size_t) FB_W * kegs_height, sizeof(*kegs_pixels));
 
-	last_second = host_time();
+	last_second = start = host_time();
+	frames_run = 0;
 	for (;;) {
 		double now;
 
 		process_input();
 		if (open_menu) {
 			open_menu = FALSE;
-			adb_kbd_repeat_off();
-			bmapple2_menu();
-			video_set_x_refresh_needed(main_kimage, 1);
+			bmlisa_menu();
+			redraw_all = TRUE;
+			start = host_time();
+			frames_run = 0;
 		}
 
-		if (run_16ms() != 0) {
-			osd_open();
-			osd_message("KEGS stopped. The log (see the User Guide) says why.", FALSE);
-			for (;;) {
-				bmapple2_idle();
-				host_video_present(TRUE);
+		if (fast) {
+			/* As many frames as fit in most of a display refresh, up to
+			   16 (the simulator's time only moves on with the display). */
+			double until = host_time() + 0.8 / refresh_rate;
+			int n = 0;
+			do {
+				if (!run_frame())
+					break;
+			} while (++n < 16 && host_time() < until && !lisa_off);
+		} else if (vsync_lock) {
+			if (!run_frame())
+				stop_with("The Lisa's processor stopped. The log (see the User Guide) says where.");
+		} else {
+			/* The frames the time since starting calls for, at most a
+			   few at once (after a pause, it carries on from there). */
+			int n = 0;
+			now = host_time();
+			while (frames_run < (now - start) * LISA_FRAME_RATE && n < 4) {
+				if (!run_frame())
+					stop_with("The Lisa's processor stopped. The log (see the User Guide) says where.");
+				frames_run++;
+				n++;
+			}
+			if (n == 4) {
+				start = now;
+				frames_run = 0;
 			}
 		}
-		startup_slot_continue();
-		monitor_switch();
-		copy_picture();
-		draw_disk_activity();
-		osd_draw_notification(fb_pixels, fb_pitch_px, FB_W, FB_H);
-		host_video_present(vsync_lock);
+		if (lisa_off)
+			clear_framebuffer();
+		else
+			copy_screen();
+		osd_draw_notification(fb_pixels, fb_pitch_px, FB_W, LISA_SCREEN_H);
+		host_video_present(vsync_lock || fast);
 
 		now = host_time();
 		if (now - last_second >= 1.0) {

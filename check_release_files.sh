@@ -55,7 +55,8 @@ REQUIRED_FILES=(
     "LICENSE.txt"
     "README.txt"
     "licenses/README.txt"
-    "licenses/kegs.txt"
+    "licenses/idle.txt"
+    "licenses/musashi.txt"
     "licenses/Apache-2.0.txt"
     "licenses/crt-pi.txt"
     "licenses/GPL-2.0.txt"
@@ -156,7 +157,7 @@ done
 
 # The kernels must be this version (and for a release, built from committed
 # files).
-version="BMApple2 $("$SRC_DIR/tools/version.sh" --semver) ($("$SRC_DIR/tools/version.sh" --git),"
+version="BMLisa $("$SRC_DIR/tools/version.sh" --semver) ($("$SRC_DIR/tools/version.sh" --git),"
 kernels_found=0
 for kernel in "${KERNELS[@]}"
 do
@@ -176,7 +177,7 @@ do
         echo "$kernel is not \"$version ...\": rebuild it"
         problems=1
     fi
-    if [ "$RELEASE" -eq 1 ] && grep -qaE "BMApple2 [^ ]+ \([0-9a-f]+-dirty," "$path"
+    if [ "$RELEASE" -eq 1 ] && grep -qaE "BMLisa [^ ]+ \([0-9a-f]+-dirty," "$path"
     then
         echo "$kernel was built with uncommitted changes (-dirty)"
         problems=1

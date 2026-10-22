@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- BMLisa starts, from BMApple2 0.4.2: IDLE 0.10 (the Lisa emulator by
+  Gilles Fétis) in place of KEGS, running in the PC simulator. The Lisa 2
+  (or Lisa 1) from the ROMs in roms; the ProFile hard disk (a blank one made
+  if there is none) and Disk Copy 4.2 floppies; the keyboard and mouse; the
+  Lisa's power button and switching itself off; the F12 menu; the frame lock
+  at the Lisa's 59.5 Hz. Boots the Lisa Office System 3.1, the Workshop
+  3.0, MacWorks XL 3.0 and SCO Xenix 3.0 (from its boot floppy,
+  pf(0,0)xenix)
+- The 68000 is Musashi 4.10 (MIT licence), with IDLE's 68000 bus errors in
+  BMLisa's lisa_cpu.c, and the serial chip BMLisa's own (scc.cpp): IDLE's
+  Musashi 3.3 (non-commercial use only) and Mini vMac's SCC (GPL version 2
+  only) are left out, and Musashi's SoftFloat isn't built (its FPU, which the
+  68000 doesn't have, calls lisa_nofpu.c's stand-ins)
+
+- The Lisa's parameter memory (its battery-backed settings, which IDLE
+  cleared at every start) is kept in bmlisa.pram: MacWorks XL had no
+  double-click speed, so double-clicking never opened anything; set once
+  in its Control Panel, it is now kept
+- The Raspberry Pi kernels: kernel.img, kernel7.img, kernel8-32.img,
+  kernel8-rpi4.img and kernel_2712.img, built with IDLE and Musashi in
+  place of KEGS; the web UI uses floppy and hard disk images; the guides
+  are the Lisa's
+
+BMApple2's history, from which BMLisa comes, follows.
+
 ## 0.4.2 – 2026-10-20
 
 - Fixed: the mouse's right button froze the IIgs, and its wheel's click
@@ -17,7 +44,7 @@
 - The virtual modem works on the Pi: from a terminal program on the modem
   port (slot 2), `ATDTbbs.example.com:23` calls a telnet BBS. KEGS only
   built its network code for Linux, macOS and Windows, so on the Pi the
-  modem did nothing; BMApple2 now has its own copy of it, on Circle's
+  modem did nothing; BMLisa now has its own copy of it, on Circle's
   sockets, dialling in the background so that the Apple keeps running
   while it connects (`CONNECT`, or `NO CARRIER`). *Use Remote IP* works
   too; incoming connections aren't supported. See "Calling BBSes" in the
@@ -58,10 +85,10 @@
   - The Pi 4 and 5's display and GPU code is in `src/av/`, `src/v3d/` and
     `src/kms/`, with the scaled picture centred exactly
   - Troubleshooting: an 8BitDo M30 2.4G whose receiver is in Switch mode
-- docs/SIMULATOR.md: testing and debugging BMApple2 on a PC (with gdb, lldb
+- docs/SIMULATOR.md: testing and debugging BMLisa on a PC (with gdb, lldb
   or strace), and getting a log from the Pi
 - Tests: the machine-switching test no longer overwrites APPLE2E.ROM in
-  BMAPPLE2_ROMS; sound tests at 44.1 and 48 kHz
+  BMLISA_ROMS; sound tests at 44.1 and 48 kHz
 
 ## 0.3.2 – 2026-10-16
 
@@ -71,7 +98,7 @@
   SD card's README lists the Pi 5 and Pi Zero
 - Pi 4 and 5: a rate just outside what HDMI allows gets the standard 50 or
   60 Hz mode (as in BMCoco), instead of keeping whatever mode the display had
-- The web UI no longer carries BMC64's BASIC listing editor, which BMApple2
+- The web UI no longer carries BMC64's BASIC listing editor, which BMLisa
   never used
 
 ## 0.3.1 – 2026-10-16
@@ -110,17 +137,17 @@
 
 ## 0.1.0 – 2026-10-15
 
-- First version: BMApple2, based on BMCoco 0.2.0 (itself based on BMA800XL
+- First version: BMLisa, based on BMCoco 0.2.0 (itself based on BMA800XL
   1.1.0 and BMC64), with XRoar replaced by KEGS 1.38
 - Apple IIgs, with ROM 01 or ROM 3, and Apple IIe, with a IIe ROM
 - ROM 3 and the IIe ROM made from MAME's ROM chips (Ample's ROM set on the
-  Mac too) the first time BMApple2 starts
+  Mac too) the first time BMLisa starts
 - Raspberry Pi 2, 3, Zero 2 W, 4 B and 400
 - Frames locked to the display's refresh (59.92 Hz; on a Pi 4 the display
   is set to that exactly), with the sound kept in step
 - USB keyboards (as an ADB keyboard), USB mice, gamepads as the joystick
   (analog stick or D-pad), GPIO joysticks
-- KEGS's own settings (F4) for disks, ROM, speed and the rest; BMApple2's
+- KEGS's own settings (F4) for disks, ROM, speed and the rest; BMLisa's
   menu (F10), in the Apple II's font, for the Pi: video, sound, network,
   restart
 - The machine's own speed by default: 2.8 MHz for a IIgs, 1 MHz for a IIe

@@ -3,7 +3,7 @@
 //
 // Modified for BMA800XL: the Atari 800XL's name, settings file and the
 // file types atari800 can start, in place of BMC64's machines.
-// Changed for BMCoco and BMApple2: the Apple II machine.
+// Changed for BMCoco, BMApple2 and BMLisa: the Lisa.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,20 +26,21 @@
 #include <stdio.h>
 
 // The machine running (src/port/platform.c).
-extern "C" int bmapple2_machine(void);
-extern "C" const char *bmapple2_machine_name(int machine);
+extern "C" int bmlisa_machine(void);
+extern "C" const char *bmlisa_machine_name(int machine);
 
 namespace {
 
-// The disk images KEGS can boot (emu_autostart_interrupt() in
-// src/port/platform.c puts them in a drive and restarts): 5.25" (DOS 3.3
-// and ProDOS order, nibbles, WOZ), 3.5" and hard disks.
+// The disk images the Lisa can use (emu_autostart_interrupt() in
+// src/port/platform.c): Disk Copy 4.2 floppies, which go in the drive, and
+// ProFile hard disk images, which become the hard disk (the Lisa starts
+// again from it).
 const char *const kRunTypes[] = {
-    "dsk", "do", "po", "nib", "woz", "2mg", "2img", "hdv", 0,
+    "dc42", "image", "img", "dsk", "dc", "raw", 0,
 };
 
 const WebUiMachine kMachine = {
-    "/config.kegs", kRunTypes,
+    "/bmlisa.cfg", kRunTypes,
 };
 
 char Lower(char c) {
@@ -53,8 +54,8 @@ const WebUiMachine *WebUiMachineGet(void) {
 }
 
 const char *WebUiMachineName(void) {
-  int machine = bmapple2_machine();
-  return machine >= 0 ? bmapple2_machine_name(machine) : "";
+  int machine = bmlisa_machine();
+  return machine >= 0 ? bmlisa_machine_name(machine) : "";
 }
 
 boolean WebUiMachineCanRun(const char *ext) {

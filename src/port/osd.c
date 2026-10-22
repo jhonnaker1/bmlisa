@@ -1,12 +1,11 @@
 /*
- * osd.c - BMApple2's on-screen display: menus, file browser, text entry.
+ * osd.c - BMLisa's on-screen display: menus, file browser, text entry.
  *
- * From BMCoco. Text is drawn with the Apple II character set (KEGS's
- * kegsfont.h, the Apple IIe's character ROM), each 8x8 character doubled to
- * 16x20 pixels in a 640x460 area: 40 columns by 23 rows, like an Apple II
- * 40 column screen.
+ * From BMApple2's (and BMCoco's). Text is drawn with a public domain 8x8
+ * font (osd_font.h, as BMAmiga's), each character doubled to 16x20 pixels
+ * in a 640x460 area: 40 columns by 23 rows.
  *
- * This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+ * This file is part of BMLisa, a bare metal Apple Lisa emulator for
  * the Raspberry Pi. See LICENSE for licensing details.
  */
 
@@ -19,20 +18,16 @@
 #include <sys/stat.h>
 
 #include "../host.h"
-#include "bmapple2.h"
+#include "bmlisa.h"
 #include "osd.h"
+#include "osd_font.h"
 
 #define OSD_W 640
 #define OSD_H 460
 #define CELL_W 16
 #define CELL_H 20
 
-/* KEGS's Apple II font (video.c, kegsfont.h): 8 rows a character, the
-   leftmost pixel in bit 6 (bit 7 is a blank column). Normal text is
-   0x80-0xff, set bits drawn; 0x00-0x7f is inverse and flashing text. */
-extern unsigned char g_font_array[256][8];
-
-/* RGB565 colours: a green screen Apple II monitor, and an orange bar. */
+/* RGB565 colours: a green screen monitor, and an orange bar (BMApple2's). */
 #define C_BLACK   0x0000
 #define C_GREEN   0x0fe1  /* bright green: text */
 #define C_DKGREEN 0x0400  /* dark green: labels and hints */
@@ -52,25 +47,26 @@ static void flush_input(void);
 
 static uint16_t *osd_fb(int *pitch)
 {
-	return bmapple2_framebuffer(pitch);
+	return bmlisa_framebuffer(pitch);
 }
 
-/* An Apple II glyph, each pixel drawn 2x2, with 2 blank lines above and
-   below. */
+/* A glyph of the font (osd_font.h), each pixel drawn 2x2, with 2 blank
+   lines above and below. */
 static void draw_char_at(uint16_t *fb, int pitch, int x, int y, unsigned char c,
                          uint16_t fg, uint16_t bg)
 {
-	const unsigned char *glyph;
+	const uint8_t *glyph = NULL;
 	int row, col;
 	if (c >= 0x80 || c < 0x20)
 		c = '?';
-	glyph = g_font_array[c | 0x80];
+	if (c >= OSD_FONT_FIRST_CHAR && c - OSD_FONT_FIRST_CHAR < OSD_FONT_GLYPHS)
+		glyph = &osd_font_8x8[(c - OSD_FONT_FIRST_CHAR) * 8];
 	for (row = 0; row < CELL_H; row++) {
 		uint16_t *p = fb + (y + row) * pitch + x;
 		int font_row = (row - 2) / 2;
-		unsigned bits = row >= 2 && font_row < 8 ? glyph[font_row] & 0x7f : 0;
+		unsigned bits = glyph != NULL && row >= 2 && font_row < 8 ? glyph[font_row] : 0;
 		for (col = 0; col < 8; col++) {
-			uint16_t colour = (bits & (0x80 >> col)) ? fg : bg;
+			uint16_t colour = (bits & (1u << col)) ? fg : bg;
 			p[0] = colour;
 			p[1] = colour;
 			p += 2;
@@ -146,7 +142,7 @@ void osd_open(void)
 	closing = FALSE;
 	flush_input();
 	clear_screen();
-	bmapple2_osd_view(TRUE);
+	bmlisa_osd_view(TRUE);
 }
 
 void osd_close(void)
@@ -157,7 +153,7 @@ void osd_close(void)
 	closing = FALSE;
 	flush_input();
 	clear_screen();
-	bmapple2_osd_view(FALSE);
+	bmlisa_osd_view(FALSE);
 }
 
 int osd_is_open(void)
@@ -319,7 +315,7 @@ static int poll_input(int pads)
 	int usage, pressed, key;
 	double now = host_time();
 
-	if (bmapple2_pending_requests()) {
+	if (bmlisa_pending_requests()) {
 		closing = TRUE;
 		return OSD_KEY_MENU;
 	}
@@ -331,7 +327,7 @@ static int poll_input(int pads)
 		}
 		if (usage == USAGE_POWER) {
 			/* Shut Down, as during play (platform.c). */
-			bmapple2_request_power(1);
+			bmlisa_request_power(1);
 			closing = TRUE;
 			return OSD_KEY_MENU;
 		}
@@ -378,7 +374,7 @@ int osd_poll_key(int pads)
 	key = poll_input(pads);
 	if (key == OSD_KEY_NONE) {
 		/* Waits for the next display refresh. */
-		bmapple2_idle();
+		bmlisa_idle();
 		host_video_present(TRUE);
 		if (!pads)
 			flush_pads();
@@ -465,7 +461,7 @@ int osd_menu(const char *title, const struct osd_item *items, int n, int *select
 		if (sel >= top + LIST_ROWS)
 			top = sel - LIST_ROWS + 1;
 
-		draw_frame(title, "Enter: choose   Esc: back   F10: close");
+		draw_frame(title, "Enter: choose   Esc: back   F12: close");
 		for (i = 0; i < LIST_ROWS && top + i < n; i++)
 			draw_item(LIST_TOP + i, &items[top + i], top + i == sel);
 		if (top > 0)
@@ -620,7 +616,7 @@ void osd_message(const char *text, int wait)
 	int was_open = is_open;
 	if (!was_open)
 		osd_open();
-	draw_frame("BMApple2", wait ? "Press any key" : NULL);
+	draw_frame("BMLisa", wait ? "Press any key" : NULL);
 	draw_wrapped(5, OSD_ROWS - 7, text, C_GREEN);
 	if (wait) {
 		osd_read_key();

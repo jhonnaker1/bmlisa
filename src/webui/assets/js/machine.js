@@ -1,4 +1,4 @@
-// The machine BMApple2 is running and what the web UI can do on it, from the
+// The machine BMLisa is running and what the web UI can do on it, from the
 // "machine" and "caps" of /api/status (webui_machine.cpp on the device).
 
 import * as api from "./api.js";
@@ -25,16 +25,16 @@ export async function loadMachine() {
   }
 }
 
-// Machine name, e.g. "Apple IIgs, ROM 3" or "Apple IIe".
+// Machine name, e.g. "Lisa 2".
 export const machineName = () => current.name;
 
-// Without the ROM: "Apple IIgs".
+// The first part of the name, before any comma.
 export const machineShortName = () => current.name.split(",")[0] || "machine";
 
 // Name for display.
 export const machineDisplayName = () => current.name || "machine";
 
-// The emulator's settings file, "/config.kegs".
+// The emulator's settings file, "/bmlisa.cfg".
 export const mainSettingsFile = () => current.settings;
 
 // Whether Autostart accepts files with this extension.

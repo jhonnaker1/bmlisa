@@ -1,7 +1,7 @@
 //
 // kernel.cpp
 //
-// This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+// This file is part of BMLisa, a bare metal Apple Lisa emulator for
 // the Raspberry Pi. See LICENSE for licensing details.
 //
 // Parts of the USB, frame buffer and sound handling are based on BMC64's
@@ -32,11 +32,11 @@
 extern "C" {
 // From src/port/platform.c: the emulator's entry point, which runs on core
 // 1, and its Reboot / Shut Down request.
-void bmapple2_main(void);
-void bmapple2_request_power(int power_off);
+void bmlisa_main(void);
+void bmlisa_request_power(int power_off);
 }
 
-static const char FromKernel[] = "bmapple2";
+static const char FromKernel[] = "bmlisa";
 
 // Sample rate the VideoCore plays audio at.
 #define HW_SAMPLE_RATE 44100
@@ -85,7 +85,7 @@ void CEmulatorCore::Run(unsigned nCore) {
     while (!m_bLaunch) {
       DataMemBarrier();
     }
-    bmapple2_main();
+    bmlisa_main();
   }
 #if RASPPI >= 4
   // Cores 2 and 3 help draw smoothed and CRT frames (src/av/video.h).
@@ -183,8 +183,8 @@ bool CKernel::Initialize(void) {
     return false;
   }
   mLogger.RegisterPanicHandler(PanicHandler);
-  mLogger.Write(FromKernel, LogNotice, "BMApple2 " BMAPPLE2_VERSION " (" BMAPPLE2_GIT
-                ", KEGS " KEGS_VERSION ")");
+  mLogger.Write(FromKernel, LogNotice, "BMLisa " BMLISA_VERSION " (" BMLISA_GIT
+                ", IDLE " IDLE_VERSION ", Musashi " MUSASHI_VERSION ")");
 
   if (!mTimer.Initialize()) {
     return false;
@@ -210,8 +210,8 @@ bool CKernel::Initialize(void) {
     mLogger.Write(FromKernel, LogError, "Cannot mount the SD card");
     return false;
   }
-  // Settings saved by the BMApple2 menu win over cmdline.txt.
-  mOptions.LoadSettings("SD:/bmapple2.cfg");
+  // Settings saved by the BMLisa menu win over cmdline.txt.
+  mOptions.LoadSettings("SD:/bmlisa.cfg");
 
   // Until here the log went to the serial port. No setting means no log.
   const char *logging = mOptions.Get("enable_logging", "off");
@@ -238,8 +238,7 @@ bool CKernel::Initialize(void) {
 
   const char *audio_out = mOptions.Get("audio_out", "auto");
 
-  // Full scale: BMApple2's volume (the menu, volume=) is applied as the
-  // samples are written, and the IIgs sets its own (its Control Panel).
+  // Full scale. (The Lisa makes no sound in BMLisa: IDLE has none.)
   const int volume = 100;
 
 #if RASPPI >= 4
@@ -314,7 +313,7 @@ TShutdownMode CKernel::Run(void) {
   // One core (the Pi Zero): the emulator runs here and yields once a frame,
   // which lets the USB task and Circle's other tasks run.
   new CUSBPlugAndPlayTask;
-  bmapple2_main();
+  bmlisa_main();
   return ShutdownHalt;
 #else
   mEmulatorCore.Launch();
@@ -403,7 +402,7 @@ void CKernel::CheckPowerButton(void) {
     m_nPowerButtonDown = now | 1;
   } else if (now - m_nPowerButtonDown >= CLOCKHZ / 20) {
     mLogger.Write(FromKernel, LogNotice, "Power button: Shut Down");
-    bmapple2_request_power(1);
+    bmlisa_request_power(1);
     m_bPowerButtonSeenUp = false;
   }
 }
@@ -697,7 +696,8 @@ void CKernel::GamePadStatusHandler(unsigned nDeviceIndex,
   if (y < 0) state |= HOST_PAD_UP;
   if (y > 0) state |= HOST_PAD_DOWN;
 
-  // The same stick as a position, for the Apple II's analog paddles. Pads
+  // The same stick as a position (host_pad_axis(), for an emulator with an
+  // analog joystick; the Lisa has none). Pads
   // whose D-pad is reported as axes (kPadProfiles) have no stick.
   int ax = -1;
   int ay = -1;

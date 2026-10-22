@@ -16,12 +16,12 @@
 //    v3d_tiling.c: the UIF texture layout.
 //  - src/broadcom/cle/v3d_packet.xml: the record layouts.
 //
-// This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+// This file is part of BMLisa, a bare metal Apple Lisa emulator for
 // the Raspberry Pi. See LICENSE for licensing details.
 //
 
-#ifndef BMAPPLE2_V3D_DRAW_H_
-#define BMAPPLE2_V3D_DRAW_H_
+#ifndef BMLISA_V3D_DRAW_H_
+#define BMLISA_V3D_DRAW_H_
 
 #include "gpu.h"
 #include "shader.h"

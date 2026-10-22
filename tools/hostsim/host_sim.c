@@ -1,10 +1,10 @@
 /*
- * host_sim.c - runs the BMApple2 emulator port on a PC for testing.
+ * host_sim.c - runs the BMLisa emulator port on a PC for testing.
  *
  * Implements src/host.h with a simulated display, sound output and input,
  * so KEGS and the port in src/port/ can be tested without a Raspberry Pi.
  * Time is virtual: each display refresh advances the clock by one frame of
- * a 60 Hz (or BMAPPLE2_REFRESH Hz) display, so tests run as fast as the PC
+ * a 60 Hz (or BMLISA_REFRESH Hz) display, so tests run as fast as the PC
  * allows.
  *
  * A script on standard input drives the test, one command per line:
@@ -21,17 +21,17 @@
  *   <frame> run <path>             the web UI starts a file
  *   <frame> quit                   end the test
  *
- * BMAPPLE2_SIM_CONNECT_FRAMES=N makes background work (the modem's
+ * BMLISA_SIM_CONNECT_FRAMES=N makes background work (the modem's
  * connecting) start N frames late, as a slow server would on the Pi.
  *
- * BMAPPLE2_SIM_RATE=48000 plays the sound at the Pi 4 and 5's HDMI rate
+ * BMLISA_SIM_RATE=48000 plays the sound at the Pi 4 and 5's HDMI rate
  * (the latency asked for is taken at 44.1 kHz, as there).
  *
- * With BMAPPLE2_LIVE=PORT it runs in real time instead, with no script: the
+ * With BMLISA_LIVE=PORT it runs in real time instead, with no script: the
  * screen, keyboard, gamepads and sound are in a web page at
  * http://127.0.0.1:PORT/ (live.c, live.html). tools/hostsim/live.sh starts it.
  *
- * This file is part of BMApple2, a bare metal Apple II and IIgs emulator for
+ * This file is part of BMLisa, a bare metal Apple Lisa emulator for
  * the Raspberry Pi. See LICENSE for licensing details.
  */
 
@@ -49,8 +49,8 @@
 #include "live.h"
 
 /* From src/port/platform.c, called by the web UI on the Pi. */
-void bmapple2_request_power(int power_off);
-void bmapple2_request_coldstart(void);
+void bmlisa_request_power(int power_off);
+void bmlisa_request_coldstart(void);
 void emu_autostart_interrupt(const char *path);
 
 /* ---- Options ---------------------------------------------------------------- */
@@ -58,7 +58,7 @@ void emu_autostart_interrupt(const char *path);
 static const char *option(const char *name)
 {
 	static char buf[1024];
-	const char *cmdline = getenv("BMAPPLE2_CMDLINE");
+	const char *cmdline = getenv("BMLISA_CMDLINE");
 	char *p, *save = NULL;
 	size_t n = strlen(name);
 	if (cmdline == NULL)
@@ -71,8 +71,8 @@ static const char *option(const char *name)
 	return NULL;
 }
 
-/* Settings changed by the menu, which win over BMAPPLE2_CMDLINE, as
-   bmapple2.cfg does on the Pi. Saved to ./bmapple2.cfg. */
+/* Settings changed by the menu, which win over BMLISA_CMDLINE, as
+   bmlisa.cfg does on the Pi. Saved to ./bmlisa.cfg. */
 static char set_name[48][24], set_value[48][72];
 static int n_set;
 
@@ -93,7 +93,7 @@ int host_option_set(const char *name, const char *value)
 
 int host_options_save(void)
 {
-	FILE *f = fopen("bmapple2.cfg", "w");
+	FILE *f = fopen("bmlisa.cfg", "w");
 	int i;
 	if (f == NULL)
 		return 0;
@@ -136,7 +136,7 @@ static double now = 0.0;
 static double refresh = 60.0;
 static double refresh_later = 0.0;  /* refresh rate after start up */
 static volatile long frame = 0;
-static long connect_frames = 0;  /* BMAPPLE2_SIM_CONNECT_FRAMES */
+static long connect_frames = 0;  /* BMLISA_SIM_CONNECT_FRAMES */
 static long presents = 0;
 
 static void tick(void);
@@ -182,7 +182,7 @@ void host_yield(void)
 
 /* ---- Sound ---------------------------------------------------------------- */
 
-/* The output's rate: the VideoCore's 44100 Hz, or BMAPPLE2_SIM_RATE (48000
+/* The output's rate: the VideoCore's 44100 Hz, or BMLISA_SIM_RATE (48000
    for the Pi 4 and 5's HDMI, which take the latency at 44100 Hz). */
 static unsigned hw_rate = 44100;
 #define HW_RATE hw_rate
@@ -217,7 +217,7 @@ static void sound_advance(void)
 
 unsigned host_sound_open(unsigned freq, int channels, unsigned latency_frames)
 {
-	const char *rate = getenv("BMAPPLE2_SIM_RATE");
+	const char *rate = getenv("BMLISA_SIM_RATE");
 	(void) freq;
 	if (rate != NULL && atoi(rate) >= 8000)
 		hw_rate = (unsigned) atoi(rate);
@@ -512,9 +512,9 @@ static void run_script(void)
 			screenshot(line + n + 1);
 		} else if (strcmp(cmd, "webui") == 0) {
 			if (strstr(line + n, "reboot"))
-				bmapple2_request_power(0);
+				bmlisa_request_power(0);
 			else if (strstr(line + n, "coldstart"))
-				bmapple2_request_coldstart();
+				bmlisa_request_coldstart();
 		} else if (strcmp(cmd, "audio") == 0) {
 			fprintf(stderr, "[sim] frame %ld: audio written %ld frames in %ld writes, "
 			        "queue before write min %.0f, after write max %.0f, underruns %ld, "
@@ -591,7 +591,7 @@ void host_power_off(void)
 
 int host_network_address(char *address, unsigned size)
 {
-	const char *ip = getenv("BMAPPLE2_IP");
+	const char *ip = getenv("BMLISA_IP");
 	if (ip == NULL || frame < 100)
 		return 0;
 	snprintf(address, size, "%s", ip);
@@ -691,7 +691,7 @@ void host_network_status(char *text, unsigned size)
 		snprintf(text, size, "Off");
 }
 
-/* BMAPPLE2_WIFI=1 pretends Wi-Fi is running, with a few networks around. */
+/* BMLISA_WIFI=1 pretends Wi-Fi is running, with a few networks around. */
 int host_wifi_scan(struct host_wifi_ap *aps, int max)
 {
 	static const struct host_wifi_ap found[] = {
@@ -701,7 +701,7 @@ int host_wifi_scan(struct host_wifi_ap *aps, int max)
 		{"AppleNet", -60, 0},
 	};
 	int i, n = (int) (sizeof(found) / sizeof(found[0]));
-	if (getenv("BMAPPLE2_WIFI") == NULL)
+	if (getenv("BMLISA_WIFI") == NULL)
 		return -1;
 	for (i = 0; i < n && i < max; i++)
 		aps[i] = found[i];
@@ -750,7 +750,7 @@ int host_set_log_destination(int destination)
 	return 1;
 }
 
-extern void bmapple2_main(void);
+extern void bmlisa_main(void);
 
 /* For live.c */
 void sim_push_key(int usage, int pressed)
@@ -777,21 +777,21 @@ const uint16_t *sim_screen(int *w, int *h, int *pitch)
 
 int main(void)
 {
-	const char *r = getenv("BMAPPLE2_LIVE");
+	const char *r = getenv("BMLISA_LIVE");
 	if (r) {
 		live = 1;
 		if (!live_init(atoi(r)))
 			return 1;
 	}
-	r = getenv("BMAPPLE2_REFRESH");
+	r = getenv("BMLISA_REFRESH");
 	if (r)
 		refresh = atof(r);
-	r = getenv("BMAPPLE2_SIM_CONNECT_FRAMES");
+	r = getenv("BMLISA_SIM_CONNECT_FRAMES");
 	if (r)
 		connect_frames = atol(r);
-	r = getenv("BMAPPLE2_REFRESH_LATER");
+	r = getenv("BMLISA_REFRESH_LATER");
 	if (r)
 		refresh_later = atof(r);
-	bmapple2_main();
+	bmlisa_main();
 	return 0;
 }

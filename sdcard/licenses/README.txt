@@ -1,11 +1,13 @@
 Licences
 ========
 
-BMApple2 itself is under the GNU General Public License version 3
+BMLisa itself is under the GNU General Public License version 3
 (LICENSE.txt in the root of the card). It includes code from other
 projects; this folder has their notices and licences:
 
-  kegs.txt        The KEGS emulator (GPL version 3).
+  idle.txt        The IDLE emulator (BSD), but for its disassembler, from
+                  the Castaway emulator (GPL version 2 or later).
+  musashi.txt     The Musashi 68000 emulator (MIT).
   crt-pi.txt      The crt-pi CRT shader by davej (GPL version 2 or later).
   Mesa-MIT.txt    Material from the Mesa 3D graphics library's Broadcom
                   V3D drivers, for the Raspberry Pi 4 and Pi 5 GPU (MIT).
@@ -24,5 +26,5 @@ projects; this folder has their notices and licences:
 The Raspberry Pi firmware and Wi-Fi firmware licences are with the
 firmware (LICENCE.broadcom, COPYING.linux, and the firmware folder).
 
-All third-party software in BMApple2:
-https://github.com/jhonnaker1/bmapple2/blob/main/docs/THIRD_PARTY.md
+All third-party software in BMLisa:
+https://github.com/jhonnaker1/bmlisa/blob/main/docs/THIRD_PARTY.md

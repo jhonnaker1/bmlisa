@@ -109,7 +109,7 @@ then
     fi
 fi
 
-# The PC tests (tools/hostsim without real ROMs: set BMAPPLE2_ROMS to test
+# The PC tests (tools/hostsim without real ROMs: set BMLISA_ROMS to test
 # with them too).
 if [ "$SKIP_TESTS" -eq 0 ]
 then
@@ -155,7 +155,7 @@ folder_readme() {
     mkdir -p "$STAGING_DIR/$1"
     printf '%s\r\n' "$2" > "$STAGING_DIR/$1/README.txt"
 }
-folder_readme disks    "Disk images: .po .2mg .hdv .dsk .do .nib .woz (mount them with F4, Disk Configuration, or start one from the web UI)"
+folder_readme disks    "Disk images: profile.raw is the Lisa's ProFile hard disk (a blank one is made if there is none); floppies are Disk Copy 4.2 images (.dc42 .image .img), inserted from the F12 menu or the web UI"
 mkdir -p "$STAGING_DIR/roms"
 cp "$SRC_DIR/docs/ROMS.txt" "$STAGING_DIR/roms/ROMS.txt"
 
@@ -169,9 +169,9 @@ do
     then
         if [ "$board" = "pi4" ] || [ "$board" = "pi5" ]
         then
-            export BMAPPLE2_AARCH=64
+            export BMLISA_AARCH=64
         else
-            export BMAPPLE2_AARCH=32
+            export BMLISA_AARCH=32
         fi
         source "$SRC_DIR/get_gnu_toolchain.sh"
         make -j"$(nproc)"

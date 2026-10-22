@@ -1,5 +1,5 @@
 #
-# Makefile for the BMApple2 kernel image.
+# Makefile for the BMLisa kernel image.
 #
 # Run ./make_all.sh once first; it builds circle-stdlib and then this.
 # After that "make" rebuilds the kernel image for the board circle-stdlib is
@@ -20,21 +20,30 @@ include third_party/circle-stdlib/Config.mk
 # pick the board's display and sound code.
 include $(CIRCLEHOME)/Config.mk
 
-BMAPPLE2_VERSION ?= $(shell tools/version.sh --semver)
-BMAPPLE2_GIT ?= $(shell tools/version.sh --git)
-KEGS := third_party/kegs/src
-KEGS_VERSION := $(shell sed -n 's/.*g_kegs_version_str\[\] = "\(.*\)";.*/\1/p' $(KEGS)/sim65816.c)
+BMLISA_VERSION ?= $(shell tools/version.sh --semver)
+BMLISA_GIT ?= $(shell tools/version.sh --git)
+IDLE := third_party/idle
+MUSASHI := third_party/musashi
+IDLE_VERSION := 0.10
+MUSASHI_VERSION := $(shell sed -n 's/^ *Version \([0-9.]*\).*/\1/p' $(MUSASHI)/readme.txt | head -1)
 
-include src/port/kegs.mk
+include src/port/idle.mk
 
 BUILD := build
-KEGS_OBJS := $(addprefix $(BUILD)/kegs/,$(KEGS_SRCS:.c=.o))
-KEGS_LIB := $(BUILD)/libkegs.a
+# m68kmake writes Musashi's opcode tables; it runs on the computer doing the
+# build, so it is built with that computer's compiler.
+HOSTCC ?= cc
+
+# The emulation: IDLE, Musashi, and BMLisa's files that use their headers
+# (src/port/idle.mk), compiled into build/ so the sources stay clean.
+EMU_OBJS := $(addprefix $(BUILD)/idle/,$(IDLE_SRCS:.c=.o)) \
+            $(addprefix $(BUILD)/musashi/,$(MUSASHI_SRCS:.c=.o) $(MUSASHI_GEN_SRCS:.c=.o)) \
+            $(BUILD)/port/lisa_cpu.o $(BUILD)/port/lisa_nofpu.o \
+            $(BUILD)/port/lisa.o $(BUILD)/port/scc.o
+EMU_LIB := $(BUILD)/libidle.a
 
 OBJS = src/main.o src/kernel.o src/logging.o src/options.o \
-       src/port/platform.o src/port/keymap.o src/port/joystick.o \
-       src/port/snddrv.o src/port/menu.o src/port/osd.o \
-       src/port/scc_stub.o src/port/scc_socket_driver.o src/port/posix_extra.o \
+       src/port/platform.o src/port/keymap.o src/port/menu.o src/port/osd.o \
        src/port/fswrap.o \
        src/network.o src/network_time_sync.o \
        src/webui/webui.o src/webui/webui_http.o src/webui/webui_fs.o \
@@ -73,33 +82,60 @@ INCLUDE := $(CIRCLE_STDLIB_INCLUDES) $(INCLUDE) -I $(CIRCLEHOME)/addon/fatfs
 # See src/port/fswrap.c
 LDFLAGS += --wrap=stat
 
-VERSION_DEFINES = -DBMAPPLE2_VERSION=\"$(BMAPPLE2_VERSION)\" \
-                  -DBMAPPLE2_GIT=\"$(BMAPPLE2_GIT)\" -DKEGS_VERSION=\"$(KEGS_VERSION)\"
+VERSION_DEFINES = -DBMLISA_VERSION=\"$(BMLISA_VERSION)\" \
+                  -DBMLISA_GIT=\"$(BMLISA_GIT)\" -DIDLE_VERSION=\"$(IDLE_VERSION)\" \
+                  -DMUSASHI_VERSION=\"$(MUSASHI_VERSION)\"
 CFLAGS += $(VERSION_DEFINES)
 CPPFLAGS += $(VERSION_DEFINES)
 
-# The port's C files include KEGS's headers (defc.h and the rest).
-src/port/%.o src/port/%.d: CFLAGS += -I $(KEGS) -I src/port -idirafter src/port/compat -std=gnu11
+src/port/%.o src/port/%.d: CFLAGS += -I src/port -std=gnu11
 
-# KEGS itself: compiled into build/ so the submodule stays clean. clock.c's
-# get_dtime() and micro_sleep() are renamed out of the way of BMApple2's
-# (src/port/kegs.mk).
-KEGS_CFLAGS = -I $(KEGS) -I src/port -idirafter src/port/compat -std=gnu11 -w
+# Musashi, with BMLisa's settings (src/port/bmlisa_m68kconf.h) and the
+# opcode tables m68kmake wrote.
+MUSASHI_FLAGS = -I $(BUILD)/musashi -I $(MUSASHI) -I src/port $(MUSASHI_CFLAGS)
+# IDLE's files, and BMLisa's that use its headers, as IDLE builds them (as
+# C++); src/port/idle/cpu first, for "../cpu/m68k.h" (src/port/idle/README.md).
+IDLE_FLAGS = -I src/port/idle/cpu -I src/port/idle -I $(IDLE) -I src/port -I third_party \
+             -DMUSASHI_CNF='"bmlisa_m68kconf.h"' -include src/port/idle_port.h
 
-$(BUILD)/kegs/clock.o: $(KEGS)/clock.c
+$(BUILD)/musashi/m68kmake: $(MUSASHI)/m68kmake.c
+	@mkdir -p $(dir $@)
+	@echo "  HOSTCC $<"
+	@$(HOSTCC) -O1 -w -o $@ $<
+
+$(BUILD)/musashi/m68kops.c $(BUILD)/musashi/m68kops.h: $(BUILD)/musashi/m68kmake $(MUSASHI)/m68k_in.c
+	@echo "  GEN   $(BUILD)/musashi/m68kops.c"
+	@$< $(BUILD)/musashi $(MUSASHI)/m68k_in.c > /dev/null
+
+$(BUILD)/musashi/m68kops.o: $(BUILD)/musashi/m68kops.c src/port/bmlisa_m68kconf.h
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) $(MUSASHI_FLAGS) -c -o $@ $<
+
+$(BUILD)/musashi/%.o: $(MUSASHI)/%.c $(BUILD)/musashi/m68kops.h src/port/bmlisa_m68kconf.h
 	@mkdir -p $(dir $@)
 	@echo "  CC    $<"
-	@$(CC) $(CFLAGS) $(KEGS_CFLAGS) $(KEGS_CLOCK_RENAMES) -c -o $@ $<
+	@$(CC) $(CFLAGS) $(MUSASHI_FLAGS) -c -o $@ $<
 
-$(BUILD)/kegs/%.o: $(KEGS)/%.c
+$(BUILD)/port/lisa_cpu.o $(BUILD)/port/lisa_nofpu.o: $(BUILD)/port/%.o: src/port/%.c \
+		src/port/idle/cpu/lisa_cpu.h src/port/bmlisa_m68kconf.h $(BUILD)/musashi/m68kops.h
 	@mkdir -p $(dir $@)
 	@echo "  CC    $<"
-	@$(CC) $(CFLAGS) $(KEGS_CFLAGS) -c -o $@ $<
+	@$(CC) $(CFLAGS) $(MUSASHI_FLAGS:-w=) -I third_party -c -o $@ $<
 
-$(KEGS_LIB): $(KEGS_OBJS)
+$(BUILD)/port/%.o: src/port/%.cpp src/port/lisa.h src/port/idle_port.h
+	@mkdir -p $(dir $@)
+	@echo "  CPP   $<"
+	@$(CPP) $(CPPFLAGS) $(IDLE_FLAGS) -c -o $@ $<
+
+$(BUILD)/idle/%.o: $(IDLE)/%.c src/port/idle_port.h
+	@mkdir -p $(dir $@)
+	@echo "  CPP   $<"
+	@$(CPP) $(CPPFLAGS) $(IDLE_FLAGS) $(IDLE_CFLAGS) -c -o $@ $<
+
+$(EMU_LIB): $(EMU_OBJS)
 	@echo "  AR    $@"
 	@rm -f $@
-	@$(AR) cr $@ $(KEGS_OBJS)
+	@$(AR) cr $@ $(EMU_OBJS)
 
 # The web UI's pages are compiled in. Regenerate them when they change.
 WEBUI_ASSETS = $(shell find src/webui/assets -type f)
@@ -107,7 +143,7 @@ src/webui/webui_assets.c: $(WEBUI_ASSETS) tools/gen_webui_assets.py
 	@echo "  GEN   $@"
 	@python3 tools/gen_webui_assets.py
 
-$(TARGET).img: $(KEGS_LIB)
+$(TARGET).img: $(EMU_LIB)
 
 ifneq ($(filter 4 5,$(RASPPI)),)
 VIDEOCORE_LIBS :=
@@ -121,7 +157,7 @@ VIDEOCORE_LIBS := \
 	$(CIRCLEHOME)/addon/linux/liblinuxemu.a
 endif
 
-LIBS := $(KEGS_LIB) \
+LIBS := $(EMU_LIB) \
 	$(CIRCLE_STDLIB_INSTALL_DIR)/lib/libm.a \
 	$(CIRCLE_STDLIB_INSTALL_DIR)/lib/libc.a \
 	$(CIRCLE_STDLIB_INSTALL_DIR)/lib/libcirclenewlib.a \

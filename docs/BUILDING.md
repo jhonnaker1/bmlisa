@@ -1,6 +1,6 @@
 # Build Instructions
 
-BMApple2 builds on Linux (Debian, Ubuntu, WSL) and macOS.
+BMLisa builds on Linux (Debian, Ubuntu, WSL) and macOS.
 
 ## Prerequisites
 
@@ -25,17 +25,17 @@ uses `wget`; without them, `make_all.sh` and `make_wifi_firmware.sh` use
 stand-ins (the manuals aren't needed, and `curl` does the download).
 
 The Arm GNU Toolchain 15.2.rel1 is downloaded into
-`~/.cache/bmapple2/toolchains` the first time a build needs it
+`~/.cache/bmlisa/toolchains` the first time a build needs it
 (`get_gnu_toolchain.sh`), built for your computer (Linux or macOS):
 `arm-none-eabi` for the 32-bit Pi Zero, 2 and 3 kernels, `aarch64-none-elf`
 for the 64-bit Pi 4 and 5 kernels. If it can't be downloaded,
-`BMAPPLE2_ALLOW_ANY_TOOLCHAIN=1` lets the build use whatever
+`BMLISA_ALLOW_ANY_TOOLCHAIN=1` lets the build use whatever
 `arm-none-eabi-gcc` (or `aarch64-none-elf-gcc`) is on the PATH.
 
 ## Downloading the files
 
 ```
-git clone --recursive https://github.com/jhonnaker1/bmapple2.git
+git clone --recursive https://github.com/jhonnaker1/bmlisa.git
 ```
 
 or, in an existing clone, `git submodule update --init --recursive`.
@@ -83,7 +83,7 @@ rebooted from there, without touching the SD card.
    `clean_all.sh` or a change to the patches or circle-stdlib. To change
    board, run `clean_all.sh` first (make_all.sh refuses otherwise).
 3. `source get_gnu_toolchain.sh && make` rebuilds just the kernel (for the
-   Pi 4 and 5: `BMAPPLE2_AARCH=64 source get_gnu_toolchain.sh && make`).
+   Pi 4 and 5: `BMLISA_AARCH=64 source get_gnu_toolchain.sh && make`).
 4. `./make_wifi_firmware.sh DIR` puts the Wi-Fi firmware in `DIR/firmware`
    (`build_sdcard.sh` does this).
 
@@ -95,24 +95,24 @@ for how the Pi 4 and 5 builds differ.
 
 ## Testing on a PC
 
-`tools/hostsim` builds the emulator port (KEGS plus `src/port/`) for the
-PC, with a simulated display, sound and input in place of the Raspberry Pi.
-It runs scripted tests: booting, the display lock and timer pacing, the
-keyboard, gamepads, analog and digital joysticks, the menu, web UI requests
-(starting disk images in the right drive), ROMs made from MAME's chips,
-saved settings, and checking the sound stays in step with the display.
+`tools/hostsim` builds the emulator port (IDLE and Musashi plus
+`src/port/`) for the PC, with a simulated display and input in place of the
+Raspberry Pi. It runs scripted tests: booting the Lisa, the menu, the
+mouse, the keyboard, shutting down with the power button and switching on
+again, floppies, web UI requests, and the operating systems.
 
 ```
 tools/hostsim/run_tests.sh
-BMAPPLE2_ROMS=/path/to/your/roms tools/hostsim/run_tests.sh
+BMLISA_ROMS=/path/to/your/roms BMLISA_LOS=los.zip tools/hostsim/run_tests.sh
 ```
 
-Apple's ROMs can't be distributed, so the tests run a small stand-in ROM
-that `tools/hostsim/make_test_rom.py` assembles, which KEGS runs as a IIe:
-it shows whether a key is down, the paddles, the buttons and a frame
-counter, and clicks the speaker. With `BMAPPLE2_ROMS` set to a folder with a
-IIgs ROM (`ROM.03` or `ROM.01`), the IIgs is tested too. Screenshots
-(`.ppm`) are written to `tools/hostsim/out/`.
+Apple's ROMs and software can't be distributed, so the tests need yours:
+with `BMLISA_ROMS` set to a folder with the Lisa 2's ROMs, the Lisa is
+tested; with hard disk images of the Lisa Office System, the Workshop,
+MacWorks XL and Xenix (and Xenix's boot floppy), so are they (see the top
+of `tools/hostsim/run_tests.sh` and [SIMULATOR.md](SIMULATOR.md)). Each
+test uses a copy of the images. Screenshots (`.ppm`) are written to
+`tools/hostsim/out/`.
 
 To play with the port on the PC, run it live:
 
@@ -120,11 +120,10 @@ To play with the port on the PC, run it live:
 tools/hostsim/live.sh /path/to/your/roms
 ```
 
-and open http://127.0.0.1:8064/ in a browser: the screen, keyboard, sound
-and gamepads (through the browser's Gamepad API) are in the page. The
-simulator's SD card is `tools/hostsim/out/live`; disks, tapes and programs
-copied there can be mounted with F4. This runs BMApple2's port and KEGS
-on the PC, not the Pi kernel (no emulator shows the Pi's VideoCore
+and open http://127.0.0.1:8064/ in a browser: the screen, keyboard and
+mouse are in the page. The simulator's SD card is `tools/hostsim/out/live`;
+its hard disk is `disks/profile.raw` there. This runs BMLisa's port and
+IDLE on the PC, not the Pi kernel (no emulator shows the Pi's VideoCore
 display). The web page is served on 127.0.0.1 only.
 
 The simulator can also be driven by a script of key presses and
@@ -165,20 +164,22 @@ with `tools/gen_webui_assets.py` whenever an asset changes.
 | `src/vchiqsound*`            | Sound through the VideoCore (from BMC64)    |
 | `src/options.*`              | `cmdline.txt` options                       |
 | `src/host.h`                 | Interface between kernel and emulator       |
-| `src/port/platform.c`        | KEGS's front end: picture, keyboard, mouse, ROMs, web UI requests; timing; main loop |
-| `src/port/snddrv.c`          | KEGS's sound output (for its sound_driver.c) |
-| `src/port/joystick.c`        | Gamepads and GPIO joysticks as the Apple II's joystick (for KEGS's joystick_driver.c) |
-| `src/port/keymap.c`          | USB HID usages to ADB key codes             |
-| `src/port/menu.c`, `osd.c`   | The menu and its on-screen display          |
-| `src/port/scc_stub.c`        | KEGS's host serial port driver, for a Pi with none |
-| `src/port/scc_socket_driver.c` | KEGS's virtual modem, changed for Circle's sockets and dialling in the background (marked `BMAPPLE2`) |
+| `src/port/platform.c`        | IDLE's front end: the screen, keyboard, mouse, ROMs, disks, power, web UI requests; timing; main loop |
+| `src/port/lisa.cpp`, `lisa.h` | Runs IDLE: starting the Lisa, its frames, keys, mouse, floppies (what IDLE's `main_sdl.cpp` did) |
+| `src/port/lisa_cpu.c`        | IDLE's changes to its 68000, on Musashi 4: the 68000's bus errors, the instruction before last |
+| `src/port/bmlisa_m68kconf.h` | How Musashi is built (its `m68kconf.h`) |
+| `src/port/lisa_nofpu.c`      | Stand-ins for SoftFloat, which Musashi's FPU calls and isn't built |
+| `src/port/idle/cpu/`         | The headers IDLE's files include from `cpu/` |
+| `src/port/scc.cpp`           | The Lisa's serial chip, with nothing plugged in |
+| `src/port/idle_port.h`       | Sends IDLE's `fopen()` and `exit()` to BMLisa |
+| `src/port/idle.mk`           | Which IDLE and Musashi sources are built   |
+| `src/port/keymap.c`          | USB HID usages to Lisa keyboard codes       |
+| `src/port/menu.c`, `osd.c`, `osd_font.h` | The menu and its on-screen display |
 | `src/port/fswrap.c`          | `stat()` of the SD card's root, which FatFs can't do (`--wrap=stat`) |
-| `src/port/posix_extra.c`     | waitpid() for newlib                        |
-| `src/port/compat/`           | Empty stand-ins for headers newlib lacks    |
-| `src/port/kegs.mk`           | Which KEGS sources are built                |
 | `src/patches/`               | Changes applied to Circle by `make_all.sh`  |
 | `sdcard/`                    | Files for the SD card                       |
-| `third_party/kegs`           | KEGS (submodule)                            |
+| `third_party/idle`           | IDLE (its Subversion repository, less the files whose licences don't allow BMLisa) |
+| `third_party/musashi`        | Musashi, the 68000 (submodule)              |
 | `third_party/circle-stdlib`  | Circle and newlib (submodule)               |
 | `src/av/`                    | Shared Pi 4/5 video, ARM scaling / CRT shader and sound |
 | `src/v3d/`                   | Shared Pi 4/5 GPU driver and CRT rendering  |

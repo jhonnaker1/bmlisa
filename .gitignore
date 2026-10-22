@@ -10,7 +10,7 @@ build/
 .board
 
 # Release archives
-bmapple2-*.zip
+bmlisa-*.zip
 
 # PC test harness
 tools/hostsim/build/
@@ -25,6 +25,9 @@ sdcard_out/
 # Raspberry Pi firmware shipped on the SD card
 !sdcard/firmware/start.elf
 !sdcard/firmware/start4.elf
+
+# IDLE's video state PROM is Apple's: like the other ROMs, it goes in roms/
+third_party/idle/bios/
 
 # Local files
 docs/a*/*.md

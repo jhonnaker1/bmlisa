@@ -1,51 +1,51 @@
-# Updating KEGS and Circle
+# Updating IDLE, Musashi and Circle
 
-## KEGS
+## IDLE
 
-KEGS is a git submodule in `third_party/kegs`, from
-`https://github.com/david-schmidt/KEGS-upstream.git`, which keeps each
-release from [KEGS's SourceForge page](https://kegs.sourceforge.net/) on a
-branch of its own (`v1.38`). It is used unmodified; everything specific to
-BMApple2 is in `src/port/`:
+IDLE is in `third_party/idle`, from its Subversion repository
+(`svn.code.sf.net/p/idle-lisa-emu/code`, revision 26, its last), without
+the files `src/port/idle.mk` lists as left out: its 68000 (Musashi 3.3,
+`cpu/m68k*`) and serial chip (`io/8530scc.c`), whose licences don't allow
+BMLisa, and Apple's video PROM. Nothing else in it is changed. If IDLE
+changes again:
 
-| File | What it has to do with KEGS |
-|---|---|
-| `src/port/kegs.mk` | The list of KEGS source files to compile (from KEGS's `src/ldvars`) |
-| `src/port/platform.c` | KEGS's front end, in place of `xdriver.c` / `windriver.c` / the Mac's: `kegs_init()`, `run_16ms()`, `video_out_data()`, the key, mouse and colour mask calls, `get_dtime()` and `micro_sleep()` |
-| `src/port/snddrv.c` | In place of `sound_driver.c`: `snddrv_init()`, `snddrv_send_sound()` |
-| `src/port/joystick.c` | In place of `joystick_driver.c`: `joystick_init()`, `joystick_update()`, `joystick_update_buttons()` |
-| `src/port/scc_stub.c` | In place of `scc_unixdriver.c` on the Pi |
-| `src/port/scc_socket_driver.c` | KEGS's `scc_socket_driver.c` (the virtual modem), changed: Circle's sockets, dialling in the background. When KEGS is updated, take its new version and make the changes (marked `BMAPPLE2`) again |
-| `src/port/keymap.c` | USB keys to the ADB codes KEGS takes |
-| `src/port/osd.c` | Draws the menu with KEGS's font (`g_font_array`) |
-| `src/port/compat/` | Empty `sys/ioctl.h`, `sys/ipc.h`, `sys/shm.h` for newlib |
+```
+svn export -r <revision> https://svn.code.sf.net/p/idle-lisa-emu/code new-idle
+```
 
-To move to a new KEGS release:
+copy its files over `third_party/idle` but those, and compare:
 
-1. Fetch the new release's branch and check it out:
+| File | What it has to do with IDLE |
+| --- | --- |
+| `src/port/idle.mk` | The IDLE files built (from its `Makefile.unixsdl`) |
+| `src/port/lisa.cpp` | What IDLE's `main_sdl.cpp` did: `MemInit()`, the `init_*` calls, the frame loop (`lisa_loop()`), keys and the mouse |
+| `src/port/idle_port.h` | The files IDLE opens by name |
+| `src/port/scc.cpp` | `scc_init()`, in place of `io/8530scc.c` |
+| `src/port/idle/cpu/`, `lisa_cpu.c` | What IDLE's files use of its 68000 |
 
-   ```
-   cd third_party/kegs
-   git fetch origin
-   git checkout v1.39
-   cd ../..
-   ```
+## Musashi
 
-2. Compare the new `src/ldvars` (OBJECTS) with `src/port/kegs.mk`, and
-   add or remove files. Compare the front end functions KEGS's own drivers
-   call (`xdriver.c` is the simplest) with `src/port/platform.c`: new calls
-   at start up, renamed functions, new settings.
-3. Build and test on the PC first: `tools/hostsim/run_tests.sh`, with
-   `BMAPPLE2_ROMS` set to a folder with a IIgs ROM, and boot a GS/OS disk
-   in the live simulator (`tools/hostsim/live.sh`). Then build the kernels
-   (`./build_sdcard.sh`) and try them on a Pi.
-4. Update the version in `docs/THIRD_PARTY.md` and the branch in
-   `.gitmodules`, and commit:
+Musashi is a git submodule in `third_party/musashi`, from
+`https://github.com/kstenerud/Musashi`. To move to a newer one:
 
-   ```
-   git add third_party/kegs src/port .gitmodules docs/THIRD_PARTY.md
-   git commit -m "Update KEGS to 1.39"
-   ```
+```
+cd third_party/musashi
+git fetch
+git checkout <commit>
+cd ../..
+```
+
+Then compare its `m68kconf.h` with `src/port/bmlisa_m68kconf.h` (options
+added), and `src/port/lisa_cpu.c` with its bus error
+(`m68ki_exception_bus_error()` in `m68kcpu.h`) and the internals it uses.
+If its FPU code calls more SoftFloat functions, the link fails: add them
+to `src/port/lisa_nofpu.c`. Run `tools/hostsim/run_tests.sh` with your
+ROMs and disks, then commit:
+
+```
+git add third_party/musashi src/port docs/THIRD_PARTY.md
+git commit -m "Update Musashi to 4.x"
+```
 
 ## circle-stdlib (Circle and newlib)
 
