@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 – 2026-10-22
 
 - BMLisa starts, from BMApple2 0.4.2: IDLE 0.10 (the Lisa emulator by
   Gilles Fétis) in place of KEGS, running in the PC simulator. The Lisa 2
@@ -15,7 +15,6 @@
   Musashi 3.3 (non-commercial use only) and Mini vMac's SCC (GPL version 2
   only) are left out, and Musashi's SoftFloat isn't built (its FPU, which the
   68000 doesn't have, calls lisa_nofpu.c's stand-ins)
-
 - The Lisa's parameter memory (its battery-backed settings, which IDLE
   cleared at every start) is kept in bmlisa.pram: MacWorks XL had no
   double-click speed, so double-clicking never opened anything; set once
