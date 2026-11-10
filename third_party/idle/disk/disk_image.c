@@ -73,6 +73,11 @@ int get_sect_by_track_twiggy(int track)
 
 uint8 dummy[1024];
 
+/* BMLisa: whether a disk is in the drive (the Lisa ejects them itself). */
+int bmlisa_floppy_present(int drive) {
+    return (drive==0 ? diska.init : diskb.init) != 0;
+}
+
 void unclamp(int drive) {
     FloppyType *disk;
 

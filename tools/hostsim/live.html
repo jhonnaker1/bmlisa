@@ -166,7 +166,7 @@ document.querySelectorAll("button[data-key]").forEach((b) => {
 
 // ---- Mouse ----
 // Clicking the screen captures the mouse (Esc lets it go): its movements
-// are the IIgs mouse's, sent at most once a frame.
+// are the Lisa's mouse's, sent at most once a frame.
 let mouseDx = 0, mouseDy = 0, mouseButtons = 0, mouseDirty = false;
 const locked = () => document.pointerLockElement === canvas;
 canvas.addEventListener("click", () => {

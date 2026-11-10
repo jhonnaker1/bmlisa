@@ -1291,6 +1291,24 @@ char*            MemInit(int model)
         return NULL;
 }
 
+/* BMLisa: the MMU and memory board as at power on (mmuReset() is the
+   processor's reset, which leaves them): no parity errors left from the
+   boot ROM's memory test, no masks, no video interrupt. */
+void bmlisa_mmu_power_on(void)
+{
+     int i;
+     mmuCONTEXT=0;
+     mmuVIDINTR=0;
+     mmuSTATUS=0x000F;
+     mmuMEMERR=0x0000;
+     mmuDIAG=0;
+     mmuMSK=0;
+     isVBL=0;
+     for (i=0;i<512*4096;i++)
+         ramErrors[i]=0;
+     mmuSTART=1;
+}
+
 void mmuReset(void)
 {
      mmuSTART=1;

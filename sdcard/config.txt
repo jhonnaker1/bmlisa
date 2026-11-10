@@ -37,9 +37,8 @@ framebuffer_ignore_alpha=1
 
 # Video: 1280x720 at 60 Hz, the right rate for the Lisa (59.5 Hz).
 # The emulator's frames are locked to the display when its refresh rate
-# is that close, which gives perfectly smooth scrolling. On the Pi 4,
-# Pi 400 and Pi 5 BMLisa sets the display to the Lisa's exact rate itself
-# (see docs/PI4.md); hdmi_mode only chooses the resolution on the Pi 4 (the
+# is that close (it then runs 0.8% fast), which gives perfectly smooth
+# scrolling. hdmi_mode only chooses the resolution on the Pi 4 (the
 # Pi 5's firmware uses the display's preferred one; choose it under Video,
 # Resolution).
 disable_overscan=1

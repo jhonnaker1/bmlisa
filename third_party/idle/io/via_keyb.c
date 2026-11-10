@@ -241,9 +241,12 @@ void send_COP(uint8 code)
                                  IDLE_TRACE("COP: clock command time=%u",t);
                                       push_fifo(0x80);
                                       push_fifo(0xE9);
-                                      d1=(ts->tm_yday)/100;
-                                      d2=((ts->tm_yday)/10)%10;
-                                      d3=(ts->tm_yday)%10;
+                                      /* BMLisa: the Lisa's days count from 1; tm_yday
+                                         from 0 made 1 January day 0, and the
+                                         Workshop then switched the Lisa off. */
+                                      d1=(ts->tm_yday+1)/100;
+                                      d2=((ts->tm_yday+1)/10)%10;
+                                      d3=(ts->tm_yday+1)%10;
                                       h1=(ts->tm_hour)/10;
                                       h2=(ts->tm_hour)%10;
                                       m1=(ts->tm_min)/10;

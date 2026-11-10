@@ -73,13 +73,19 @@ void bmlisa_set_fast(int fast);
    in bmlisa.cfg). */
 const char *bmlisa_hard_disk(void);
 int bmlisa_set_hard_disk(const char *path);
+/* No hard disk (the ProFile unplugged) until another is chosen; "" is then
+   the hard disk's name. */
+void bmlisa_eject_hard_disk(void);
 /* Puts a floppy image in drive DRIVE (0, or the Lisa 1's 1). */
 int bmlisa_insert_floppy(const char *path, int drive);
 const char *bmlisa_floppy(int drive);
+void bmlisa_eject_floppy(int drive);
 /* Reboot or power off, closing files first. */
 void bmlisa_request_power(int power_off);
 /* Boots the Lisa again, as switching it off and on does. */
 void bmlisa_restart(void);
+/* The Lisa's power button (nothing while it is off). */
+void bmlisa_power_button(void);
 /* Web UI requests waiting to be done; menus close for them. */
 int bmlisa_pending_requests(void);
 

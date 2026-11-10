@@ -14,9 +14,9 @@ name Circle looks for on the Pi 5
 ## Picture
 
 BMLisa shows the picture through the Pi 5's HVS with its own display
-driver (`src/kms/pi5/`, from BMA800XL 1.3.0), and runs the display at the
-Lisa's frame rate, as
-on the Pi 4 (see `video_driver` in [PI4.md](PI4.md)). The Pi 5's firmware
+driver (`src/kms/pi5/`, from BMA800XL 1.3.0), as on the Pi 4 (see
+`video_driver` in [PI4.md](PI4.md)); the display keeps 60 Hz, and the
+Lisa's 59.5 Hz is locked to it. The Pi 5's firmware
 ignores `hdmi_mode` and picks the display's own preferred resolution, so the
 *Resolution* setting (Video menu, or `resolution` in `cmdline.txt`) chooses
 it instead: *Auto* (the firmware's), 1920x1080 or 1280x720. Sharp pixels
@@ -32,12 +32,10 @@ movement can tear.
 
 ## Sound
 
-Sound goes out over HDMI, on the port the display is plugged into (HDMI0
-if both are). The Pi 5 and Pi 500 have no headphone jack. The sound
-runs about 24 ms later than on the Pi 4, which keeps it clean on the Pi 5.
+The Lisa has no sound in BMLisa (IDLE emulates none).
 
 ## Shut Down
 
-*Shut Down* (menu, web UI, a keyboard's power key, or a short press of the
+*Shut Down* (menu, web UI, a keyboard's power key while the menu is open, or a short press of the
 Pi 5's power button or the Pi 500's power key) halts the Pi; the power
 button or key starts it again.

@@ -100,10 +100,8 @@ int ret;
 char buf[532];
 IDLE_INIT_FUNC("profile_read()");
 IDLE_TRACE("reading block %x",block);
-ret=fseek(profile_file,block*532,SEEK_SET);
-IDLE_TRACE("reading block x%x fseek res",ret);
 errno=0;
-ret=fread(buf,1,532,profile_file);
+ret=bmlisa_profile_read(profile_file,block,(unsigned char *)buf); /* BMLisa: raw or LisaEm .dc42 */
 IDLE_TRACE("reading block x%x byte read errno=%d",ret,errno);
 memcpy(profile_buffer,buf,532);
 fflush(profile_file);
@@ -115,8 +113,7 @@ char buf[532];
 IDLE_INIT_FUNC("profile_write()");
 IDLE_TRACE("writing block %x",block);
 memcpy(buf,profile_buffer,532);
-ret=fseek(profile_file,block*532,SEEK_SET);
-ret=fwrite(buf,532,1,profile_file);
+ret=bmlisa_profile_write(profile_file,block,(const unsigned char *)buf); /* BMLisa: raw or LisaEm .dc42 */
 fflush(profile_file);
 }
 
@@ -169,7 +166,7 @@ void state_read(void) {
     via_hdd_irb&=(~BUSY)&0xFF;
     via_set_input_b(HDD_VIA,via_hdd_irb);
     read_profile_index=0;
-    if (block<((profile_type==0)?0x2600:0x4C00))
+    if (block<bmlisa_profile_blocks()) /* BMLisa: any ProFile size */
        profile_read(block);
 }
 
@@ -224,7 +221,7 @@ void state_write5(void) {
     via_hdd_irb|=BUSY;
     via_set_input_b(HDD_VIA,via_hdd_irb);
 
-    if (block<((profile_type==0)?0x2600:0x4C00))
+    if (block<bmlisa_profile_blocks()) /* BMLisa: any ProFile size */
        profile_write(block);
 }
 
@@ -547,10 +544,7 @@ int read_profile_stream(int dummy) {
     IDLE_INIT_FUNC("read_profile_stream()");
     uint32 block=((hdd_command[1] & 0xFF)<<16)|(hdd_command[2]<<8)|(hdd_command[3]);
     if (block==0xFFFFFF) {
-        if (profile_type==0)
-                val=profile_str[read_profile_index];
-        else
-                val=widget_str[read_profile_index];
+        val=bmlisa_profile_spare(read_profile_index); /* BMLisa: any ProFile size */
         
         // discards the stream at end
         if (read_profile_index<PROFILE_STR_LEN) {
@@ -691,6 +685,20 @@ end:
      last=value;
 }
 
+/* BMLisa: the ProFile as at power on (its state, lines and timers), for
+   another disk image. */
+void bmlisa_profile_power_on(void) {
+     idle_timer_remove(PROFILE_TIMOUT);
+     idle_timer_remove(PROFILE_TIMOUT2);
+     profile_state=0;
+     hdd_command_state=0;
+     read_profile_index=0;
+     write_profile_index=0;
+     via_hdd_ira=0xFF;
+     via_hdd_irb=0xFE;
+     via_set_stream_a_callback(HDD_VIA,NULL);
+}
+
 void via_turn_on_PROFILE(void) {
      profile_on=1;
 }
@@ -707,7 +715,7 @@ int check_profile_image(void) {
     if (profile_file==NULL) return -1;
     else {
          size=fseek(profile_file,0,SEEK_END);
-         size=ftell(profile_file);
+         size=bmlisa_profile_size(profile_file); /* BMLisa: raw or LisaEm .dc42 */
          IDLE_TRACE("size is %d",size);
          switch (size/532) {case 0x2600:
                                         profile_type=ret=0;
@@ -766,10 +774,14 @@ void init_via_hdd_io(int profile_type_a)
      }     
      
      profile_file=fopen("profile.raw","rb+");
-     rewind(profile_file);
+     /* BMLisa: no hard disk (ejected): the ProFile is off, and doesn't
+        answer, as one unplugged (IDLE rewound a NULL file here). */
      if (profile_file==NULL) {
         IDLE_TRACE("cannot create profile...");
-        exit(1);
+        profile_on=0;
+        return;
      }
+     rewind(profile_file);
+     profile_on=1;
      // profile_mode=WRITE;
 }

@@ -344,10 +344,26 @@ const char *bmlisa_hard_disk(void)
 	return hard_disk;
 }
 
-/* A Lisa 1 has two floppy drives, a Lisa 2 one. */
+/* A Lisa 1 has two floppy drives, a Lisa 2 one. The name is forgotten once
+   the disk is out (the Lisa ejects them itself). */
 const char *bmlisa_floppy(int drive)
 {
-	return drive >= 0 && drive < 2 && floppy_name[drive][0] ? floppy_name[drive] : NULL;
+	if (drive < 0 || drive >= 2)
+		return NULL;
+	if (!bmlisa_lisa_floppy_present(drive))
+		floppy_name[drive][0] = '\0';
+	return floppy_name[drive][0] ? floppy_name[drive] : NULL;
+}
+
+void bmlisa_eject_floppy(int drive)
+{
+	if (bmlisa_lisa_floppy_drives() == 1)
+		drive = 0;
+	if (drive < 0 || drive > 1)
+		return;
+	bmlisa_lisa_eject_floppy(drive);
+	floppy_name[drive][0] = '\0';
+	printf("BMLisa: floppy drive %d ejected\n", drive + 1);
 }
 
 int bmlisa_insert_floppy(const char *path, int drive)
@@ -371,12 +387,25 @@ static int open_hard_disk(void)
 	const char *want = host_option("harddisk", "");
 	struct stat st;
 	FILE *f;
+	if (strcmp(want, "none") == 0) {
+		/* Ejected (the menu): no ProFile. */
+		hard_disk[0] = '\0';
+		printf("BMLisa: no hard disk\n");
+		return TRUE;
+	}
 	if (want[0] == '/')
 		snprintf(hard_disk, sizeof hard_disk, "%s", want);
 	else if (want[0] != '\0')
 		card_path(hard_disk, sizeof hard_disk, "", want);
-	else
+	else {
+		/* disks/profile.raw, or LisaEm's disks/profile.dc42 if only that
+		   is there. */
+		char dc42[sizeof hard_disk];
 		card_path(hard_disk, sizeof hard_disk, "disks", "profile.raw");
+		card_path(dc42, sizeof dc42, "disks", "profile.dc42");
+		if (stat(hard_disk, &st) != 0 && stat(dc42, &st) == 0)
+			snprintf(hard_disk, sizeof hard_disk, "%s", dc42);
+	}
 	if (stat(hard_disk, &st) != 0) {
 		if (bmlisa_lisa_make_hard_disk(hard_disk, TRUE))
 			printf("BMLisa: made a blank hard disk, %s\n", hard_disk);
@@ -393,30 +422,36 @@ static int open_hard_disk(void)
 	return TRUE;
 }
 
-/* A ProFile image is blocks of 532 bytes, 5 or 10 MB. */
+/* A ProFile image of 5 or 10 MB, or one of LisaEm's larger sizes: raw, or
+   LisaEm's Disk Copy 4.2 (lisa.cpp). Anything else, a wrong size, IDLE
+   took as it was, and the Lisa only showed its error 84. */
 static int is_hard_disk_image(const char *path)
 {
-	struct stat st;
-	return stat(path, &st) == 0 && st.st_size >= 0x2600L * 532 && st.st_size % 532 == 0;
+	return bmlisa_lisa_hard_disk_blocks(path, NULL) != 0;
 }
 
+/* Another hard disk: the Lisa starts again from it, on a ProFile switched
+   off and on (lisa.cpp). (Changing just the file under IDLE's ProFile left
+   the boot ROM with its error 52.) */
 int bmlisa_set_hard_disk(const char *path)
 {
-	char old[sizeof hard_disk];
-	if (!is_hard_disk_image(path))
+	if (!is_hard_disk_image(path) || !bmlisa_lisa_change_hard_disk(path))
 		return FALSE;
-	snprintf(old, sizeof old, "%s", hard_disk);
 	snprintf(hard_disk, sizeof hard_disk, "%s", path);
-	bmlisa_lisa_set_paths(rom_dir, hard_disk);
-	if (!bmlisa_lisa_reopen_hard_disk()) {
-		snprintf(hard_disk, sizeof hard_disk, "%s", old);
-		bmlisa_lisa_set_paths(rom_dir, hard_disk);
-		return FALSE;
-	}
 	save_setting("harddisk", hard_disk);
 	printf("BMLisa: hard disk %s\n", hard_disk);
 	bmlisa_restart();
 	return TRUE;
+}
+
+/* The hard disk unplugged: no ProFile until another is chosen (kept, as
+   harddisk=none). */
+void bmlisa_eject_hard_disk(void)
+{
+	bmlisa_lisa_eject_hard_disk();
+	hard_disk[0] = '\0';
+	save_setting("harddisk", "none");
+	printf("BMLisa: hard disk ejected\n");
 }
 
 /* ---- Power ---------------------------------------------------------------- */
@@ -432,12 +467,20 @@ void bmlisa_restart(void)
 	redraw_all = TRUE;
 }
 
+void bmlisa_power_button(void)
+{
+	if (!lisa_off)
+		bmlisa_lisa_power_button();
+}
+
 static void lisa_switched_off(void)
 {
 	lisa_off = TRUE;
 	clear_framebuffer();
 	osd_notify("The Lisa is off: a key or click switches it on.");
 	printf("BMLisa: the Lisa switched itself off\n");
+	if (!bmlisa_lisa_sync_hard_disk())
+		printf("BMLisa: cannot write the hard disk's checksums\n");
 	sync_files();
 }
 
@@ -505,6 +548,8 @@ static void handle_requests(void)
 		int power_off = request_power;
 		request_power = -1;
 		printf("%s\n", power_off ? "Shutting down" : "Rebooting");
+		if (!bmlisa_lisa_sync_hard_disk())
+			printf("BMLisa: cannot write the hard disk's checksums\n");
 		sync_files();
 		if (power_off)
 			host_power_off();
@@ -540,8 +585,8 @@ static void process_input(void)
 	while (host_key_event(&usage, &pressed)) {
 		int code;
 		if (usage == USAGE_POWER || usage == KEY_POWER) {
-			if (pressed && !lisa_off)
-				bmlisa_lisa_power_button();
+			if (pressed)
+				bmlisa_power_button();
 			continue;
 		}
 		if (usage == KEY_MENU) {
@@ -615,6 +660,7 @@ static void show_network_address(void)
 
 static void stop_with(const char *message)
 {
+	printf("BMLisa: stopped: %s\n", message);
 	osd_open();
 	osd_message(message, FALSE);
 	for (;;) {
@@ -671,6 +717,11 @@ void bmlisa_main(void)
 	}
 	if (!open_hard_disk())
 		stop_with("The hard disk image could not be opened or made: is the card full, or locked?");
+	if (hard_disk[0] != '\0' && !is_hard_disk_image(hard_disk)) {
+		printf("BMLisa: %s isn't a ProFile image\n", hard_disk);
+		stop_with("The hard disk image isn't a ProFile's (5 or 10 MB, or LisaEm's "
+		          "up to 512 MB): a raw image (blocks of 532 bytes) or LisaEm's (.dc42).");
+	}
 	bmlisa_lisa_set_paths(rom_dir, hard_disk);
 	printf("BMLisa: %s, ROMs %s and %s\n", machines[current_machine].name,
 	       machines[current_machine].rom_hi, machines[current_machine].rom_lo);
@@ -712,7 +763,7 @@ void bmlisa_main(void)
 			int n = 0;
 			do {
 				if (!run_frame())
-					break;
+					stop_with("The Lisa's processor stopped. The log (see the User Guide) says where.");
 			} while (++n < 16 && host_time() < until && !lisa_off);
 		} else if (vsync_lock) {
 			if (!run_frame())

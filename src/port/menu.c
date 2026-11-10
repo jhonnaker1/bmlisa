@@ -88,10 +88,28 @@ static const char *base_name(const char *path)
 	return slash != NULL ? slash + 1 : path;
 }
 
+/* With a disk in: insert another, or eject it. Returns 0 to choose
+   another, 1 if it was ejected, -1 if nothing was chosen. */
+static int insert_or_eject(const char *title, const char *eject)
+{
+	const char *choices[] = {"Insert Another...", eject, NULL};
+	int i = osd_choose(title, choices, 0);
+	return i < 0 ? -1 : i;
+}
+
 static int choose_floppy(int drive)
 {
 	static const char *const exts[] = {"dc42", "image", "img", "dsk", "dc", NULL};
 	char path[512];
+	if (bmlisa_floppy(drive) != NULL) {
+		int i = insert_or_eject(drive == 1 ? "Lower Floppy" : "Floppy", "Eject");
+		if (i < 0)
+			return FALSE;
+		if (i == 1) {
+			bmlisa_eject_floppy(drive);
+			return TRUE;
+		}
+	}
 	start_browsing();
 	if (!osd_browse("Floppy Disk Image", browse_dir, sizeof browse_dir, exts, path, sizeof path))
 		return FALSE;
@@ -105,11 +123,22 @@ static int choose_floppy(int drive)
 static int choose_hard_disk(void)
 {
 	char path[512];
+	if (bmlisa_hard_disk()[0] != '\0') {
+		int i = insert_or_eject("Hard Disk", "Eject (unplug the ProFile)");
+		if (i < 0)
+			return FALSE;
+		if (i == 1) {
+			if (osd_confirm("Eject the Hard Disk",
+			                "Shut the Lisa down first, or what isn't saved is lost. Eject it?"))
+				bmlisa_eject_hard_disk();
+			return TRUE;
+		}
+	}
 	start_browsing();
 	if (!osd_browse("Hard Disk Image", browse_dir, sizeof browse_dir, NULL, path, sizeof path))
 		return FALSE;
 	if (!bmlisa_set_hard_disk(path)) {
-		osd_message("That isn't a ProFile hard disk image (5 or 10 MB of 532 byte blocks).", TRUE);
+		osd_message("That isn't a ProFile hard disk image (raw, or LisaEm's .dc42).", TRUE);
 		return FALSE;
 	}
 	return TRUE;
@@ -552,7 +581,8 @@ void bmlisa_menu(void)
 		struct osd_item items[] = {
 			{two ? "Upper Floppy" : "Floppy", f1 ? f1 : "(insert)", OSD_ITEM_SUBMENU, M_FLOPPY},
 			{"Lower Floppy", f2 ? f2 : "(insert)", OSD_ITEM_SUBMENU, M_FLOPPY2},
-			{"Hard Disk", base_name(bmlisa_hard_disk()), OSD_ITEM_SUBMENU, M_HARD_DISK},
+			{"Hard Disk", bmlisa_hard_disk()[0] ? base_name(bmlisa_hard_disk()) : "(none)",
+			 OSD_ITEM_SUBMENU, M_HARD_DISK},
 			{"", NULL, OSD_ITEM_LABEL, -1},
 			{"Lisa Power Button (F10)", NULL, 0, M_POWER_BUTTON},
 			{"Restart the Lisa", NULL, 0, M_RESTART},
@@ -581,7 +611,7 @@ void bmlisa_menu(void)
 		case M_FLOPPY: leave = choose_floppy(0); break;
 		case M_FLOPPY2: leave = choose_floppy(1); break;
 		case M_HARD_DISK: leave = choose_hard_disk(); break;
-		case M_POWER_BUTTON: bmlisa_lisa_power_button(); leave = TRUE; break;
+		case M_POWER_BUTTON: bmlisa_power_button(); leave = TRUE; break;
 		case M_RESTART:
 			if (osd_confirm("Restart", "Restart the Lisa? What isn't saved is lost."))
 				bmlisa_restart();

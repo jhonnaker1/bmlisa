@@ -19,21 +19,20 @@ instead. The rest is BMA800XL's.
 | Picture | VideoCore dispmanx layer | BMA800XL's display driver, or the firmware's framebuffer |
 | Smooth scaling | The GPU | The display hardware's scaler (the HVS) |
 | CRT shader | crt-pi on the GPU | crt-pi recalculated on the ARM cores |
-| Sound | VideoCore audio service | HDMI (either port) or the Pi 4 B's headphone jack |
 
 The emulator itself (`src/port/`) is the same on every board.
 
 ## Picture
 
-BMA800XL has its own driver for the Pi 4's display hardware
+BMLisa has BMA800XL's driver for the Pi 4's display hardware
 (`src/kms/pi4/`). It takes over the HDMI port in use (HDMI0 if both are),
-shows the Apple's picture through the HVS, the Pi's hardware scaler, and can
-run the display at exactly the Lisa's frame rate. It is chosen with
+shows the Lisa's picture through the HVS, the Pi's hardware scaler, and can
+set the display's refresh rate for an emulator. It is chosen with
 `video_driver` in `cmdline.txt`:
 
 | `video_driver` | What it does |
 |---|---|
-| `kms` (default) | As `hvs`, and also sets the video mode so the display runs at the Lisa's rate, 59.5 Hz. This works for 720p and 1080p when the display lists the 60 Hz mode. |
+| `kms` (default) | As `hvs`, and also sets the video mode for the emulator's rate where that is within 0.5% of the display's. The Lisa's 59.5 Hz isn't, so the display keeps its 60 Hz and the Lisa is locked to it (0.8% fast). |
 | `hvs` | Keeps the mode set in `config.txt`. Use it for a TV that goes blank for a while when the refresh rate changes. |
 | `firmware` | The firmware's framebuffer, with the picture scaled by the ARM. Use it if the others give trouble. |
 
@@ -44,8 +43,8 @@ The log (serial, or `bmlisa.log`) shows what happened, for example:
 ```
 kms: HDMI0, HVS channel 1, 1280x720
 kms: EDID (HDMI0): 2 block(s), HDMI, 9 video modes
-kms: Video mode VIC 4, 1280x720 at 74154395 Hz pixel clock (59.923 Hz)
-BMLisa: display refresh rate 59.923 Hz
+BMLisa: display refresh rate 60.000 Hz
+BMLisa: display 60.00 Hz, Lisa 59.50 Hz, synchronised to the display
 ```
 
 The driver was written by examining the Linux `vc4` driver and the BCM2711
@@ -66,16 +65,12 @@ The CRT shader looks best at 1080p: `hdmi_mode=16` in `config.txt`.
 
 ## Sound
 
-`audio_out` chooses where the sound goes:
-
-- `auto` (the default): HDMI, on the port the display is plugged into
-  (HDMI0 if both are); the headphone jack if the display takes no sound.
-- `hdmi`.
-- `headphones`: the Pi 4 B's 3.5 mm jack. The Pi 400 has none.
+The Lisa has no sound in BMLisa (IDLE emulates none).
 
 ## Shut Down
 
-*Shut Down* (menu, web UI, or a keyboard's power key, which is Fn+F10 on
-the Pi 400) halts the Pi the way Linux powers it off. The Pi 400 switches
+*Shut Down* (menu, web UI, or a keyboard's power key while the menu is
+open, which is Fn+F10 on the Pi 400; otherwise it is the Lisa's power
+button) halts the Pi the way Linux powers it off. The Pi 400 switches
 itself off; Fn+F10 turns it back on. The Pi 4 B halts; unplug it, or
 connect GPIO3 to ground, to start it again.

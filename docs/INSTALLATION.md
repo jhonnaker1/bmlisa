@@ -22,8 +22,9 @@
    `kernel.img`) and `config.txt` are at the top level, not in a folder (a
    Pi 4 or 5 with them in a folder shows its firmware's "not found" screen).
 4. Copy your ROMs into the `roms` folder (see below).
-5. Copy your hard disk image to `disks/profile.raw`, and floppy images
-   into `disks` (or anywhere).
+5. Copy your hard disk image to `disks/profile.raw` (a LisaEm hard disk,
+   `.dc42`, to `disks/profile.dc42`), and floppy images into `disks` (or
+   anywhere).
 6. Put the card in the Pi, connect the display, keyboard and mouse, and
    switch on.
 

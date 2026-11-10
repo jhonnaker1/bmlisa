@@ -45,6 +45,28 @@ int bmlisa_lisa_save_parameter_memory(void);
 /* Makes a blank ProFile image of 10 MB (or 5 MB) at PATH. Returns 0 if it
    can't. */
 int bmlisa_lisa_make_hard_disk(const char *path, int ten_mb);
+/* The ProFile's blocks in the image at PATH (0x2600 for 5 MB, 0x4c00 for
+   10 MB, or one of LisaEm's larger sizes up to 512 MB), raw (IDLE's) or
+   LisaEm's Disk Copy 4.2 (*DC42 set, if DC42 isn't NULL); 0 if it isn't
+   one. */
+int bmlisa_lisa_hard_disk_blocks(const char *path, int *dc42);
+/* Writes a LisaEm hard disk's checksums if it has been written to (the
+   whole image is read, a few seconds on the Pi: when the Lisa switches off,
+   and before BMLisa reboots or shuts down). LisaEm doesn't check them.
+   Returns 0 if they couldn't be written. */
+int bmlisa_lisa_sync_hard_disk(void);
+/* Another hard disk image (which must be a ProFile image): the old one is
+   closed, and IDLE's ProFile starts again as at power on with the new one.
+   The Lisa should then be started again. Returns 0 if it can't be opened
+   (the old one is kept). */
+int bmlisa_lisa_change_hard_disk(const char *path);
+/* The hard disk unplugged: the ProFile is off (its checksums written, if
+   LisaEm's), until another is chosen. */
+void bmlisa_lisa_eject_hard_disk(void);
+/* Whether the Lisa's floppy DRIVE has a disk (the Lisa ejects them from
+   its software too), and pulling it out. */
+int bmlisa_lisa_floppy_present(int drive);
+void bmlisa_lisa_eject_floppy(int drive);
 
 /* Starts the Lisa. Returns NULL, or what is wrong (a ROM missing). */
 const char *bmlisa_lisa_start(int model);
@@ -79,9 +101,6 @@ int bmlisa_lisa_floppy_drives(void);
    (the Lisa ejects disks itself, but can't be told one was taken out).
    Returns 0 if it can't. */
 int bmlisa_lisa_insert_floppy(const char *path, int drive);
-/* The hard disk image changed (bmlisa_lisa_set_paths()): opened again.
-   Returns 0 if it can't be. */
-int bmlisa_lisa_reopen_hard_disk(void);
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.1.2 – 2026-11-10
+
+- LisaEm's hard disks: a `.dc42` ProFile image (Disk Copy 4.2, its blocks
+  interleaved as LisaEm keeps them) can be the hard disk, read and written
+  as it is, with its checksums written again for LisaEm when the Lisa
+  switches off, and when BMLisa reboots or shuts down.
+  `disks/profile.dc42` is used when there is no `disks/profile.raw`; the
+  menu's *Hard Disk* and the web UI take them too. `tools/hostsim/dc42.py`
+  makes one from a raw image
+- Larger hard disks: LisaEm's sizes, 16 MB to 512 MB, as well as 5 and
+  10 MB; the ProFile's spare table gives the Lisa their size as LisaEm's
+  does ("PROFILE 40M")
+- A hard disk image of any other size isn't used, and BMLisa says why;
+  IDLE took it, and the Lisa showed only its error 84
+- Restarting the Lisa (the menu's *Restart the Lisa*, the web UI, another
+  hard disk) switches all its devices off and on, as a real Lisa's power
+  does: only its processor and MMU were reset, so the boot ROM then found
+  them part way through what they were doing (its error 52, or the
+  processor halted). Another hard disk is opened, with its own size, on a
+  ProFile just switched on
+- The Lisa's clock: its days count from 1, and IDLE gave it the day of the
+  year counted from 0, so every date was a day early, and on 1 January
+  (the Pi's date with no network to set its clock) the date was day 0: the
+  Workshop switched the Lisa off as it started
+- Ejecting in the menu: with a disk in, *Floppy* and *Hard Disk* offer
+  *Insert Another...* or *Eject*. A floppy is pulled out (the menu also
+  sees the Lisa eject them itself, and shows the drive empty); the hard
+  disk unplugs the ProFile, and the Lisa starts without one until another
+  is chosen (kept as `harddisk=none`). IDLE's ProFile is switched off when
+  there's no image (it rewound a file that wasn't open)
+- Fast: if the Lisa's processor stops, BMLisa says so, as at normal speed,
+  rather than leaving the picture still
+- Interrupt (NMI) in the menu works more than once
+- The menu's Lisa Power Button does nothing while the Lisa is off (it was
+  then held over, and shut the Lisa down as soon as it started)
+- Documents: the display stays at 60 Hz on the Pi 4 and 5 with the Lisa
+  locked to it (0.8% fast; they said it ran at 59.5 Hz); the Pi 4 and 5
+  pages had BMApple2's sound sections, and the keyboard's power key is the
+  Lisa's power button (Shut Down only while the menu is open); leftover
+  KEGS and IIgs names in comments and tools
+
 ## 0.1.1 – 2026-11-09
 
 - The Pi: 0.1.0 stopped before the Lisa started (a black screen, F12 did

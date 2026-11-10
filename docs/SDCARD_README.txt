@@ -10,8 +10,9 @@ Lisa 2, 341-0175-h, 341-0176-h and vidstate.rom. They are Apple's, so they
 are not included.
 
 The hard disk is disks/profile.raw: copy a ProFile image with the Lisa
-Office System, the Workshop, MacWorks XL or Xenix there, or let BMLisa
-make a blank one and install from floppies. Floppies are Disk Copy 4.2
+Office System, the Workshop, MacWorks XL or Xenix there (a LisaEm hard
+disk, .dc42, can be disks/profile.dc42 instead), or let BMLisa make a
+blank one and install from floppies. Floppies are Disk Copy 4.2
 images (.dc42, .image): insert one from the F12 menu.
 
   F12           BMLisa's menu: floppy, hard disk, restart, speed, video

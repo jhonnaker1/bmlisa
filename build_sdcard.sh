@@ -155,7 +155,7 @@ folder_readme() {
     mkdir -p "$STAGING_DIR/$1"
     printf '%s\r\n' "$2" > "$STAGING_DIR/$1/README.txt"
 }
-folder_readme disks    "Disk images: profile.raw is the Lisa's ProFile hard disk (a blank one is made if there is none); floppies are Disk Copy 4.2 images (.dc42 .image .img), inserted from the F12 menu or the web UI"
+folder_readme disks    "Disk images: profile.raw is the Lisa's ProFile hard disk (a blank one is made if there is none), or LisaEm's profile.dc42; floppies are Disk Copy 4.2 images (.dc42 .image .img), inserted from the F12 menu or the web UI"
 mkdir -p "$STAGING_DIR/roms"
 cp "$SRC_DIR/docs/ROMS.txt" "$STAGING_DIR/roms/ROMS.txt"
 

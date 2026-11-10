@@ -15,7 +15,7 @@ and can be switched off at any time (but see Switching off).
 | `bmlisa.cfg`     | Settings changed in BMLisa's menu (written by BMLisa)       |
 | `bmlisa.pram`    | The Lisa's parameter memory, its battery-backed settings (written by BMLisa) |
 | `roms/`          | The Lisa's ROMs: you supply them (see ROMs)                 |
-| `disks/`         | `profile.raw`, the hard disk, and your floppy images        |
+| `disks/`         | `profile.raw` (or LisaEm's `profile.dc42`), the hard disk, and your floppy images |
 | `firmware/`      | Wi-Fi firmware                                              |
 
 ## ROMs
@@ -35,19 +35,45 @@ otherwise the Lisa 1; *Machine* in the **F12** menu (or `machine=` in
 
 ## Disks
 
-**The hard disk** is a ProFile: an image of 5 or 10 MB on the card, in
-IDLE's form (blocks of 532 bytes: 20 bytes of tags, then 512 of data). It
-is `disks/profile.raw`, or another chosen with *Hard Disk* in the menu (or
-`harddisk=` in `cmdline.txt`); the choice is kept. If there is none,
-BMLisa makes a blank 10 MB one, so that an operating system can be
+**The hard disk** is a ProFile: an image on the card, either raw, in
+IDLE's form (blocks of 532 bytes: 20 bytes of tags, then 512 of data), or
+LisaEm's (`.dc42`, a Disk Copy 4.2 image), which BMLisa reads and writes as
+it is. It can be 5 or 10 MB, or one of the larger sizes LisaEm makes (16,
+20, 32, 40, 64, 128, 256 or 512 MB); an image of any other size isn't used,
+and BMLisa says so. It is `disks/profile.raw` (or `disks/profile.dc42` if
+there is only that), or another chosen with *Hard Disk* in the menu (or
+`harddisk=` in `cmdline.txt`); the choice is kept, and the Lisa starts
+again from it, as if switched off and on. If there is none,
+BMLisa makes a blank 10 MB raw one, so that an operating system can be
 installed on it from floppies.
+
+A LisaEm disk's checksums (Disk Copy's) are written again when the Lisa
+switches itself off, and when BMLisa reboots or shuts down; that reads the
+whole image, a few seconds on the Pi. LisaEm doesn't check them, so a Pi
+switched off without shutting down does no harm.
+
+**Starting from a floppy:** press a key now and then while the Lisa tests
+itself (*TESTING...*); its *Startup From* menu then opens, and Apple+2
+starts from the floppy drive (Apple+3 from the ProFile).
+
+MacWorks XL 3.0 runs from a hard disk with it installed, such as IDLE's
+10 MB one, or from its boot floppy (with Apple+2) with such a disk
+attached. A 40 MB LisaEm disk with MacWorks XL doesn't start: from the
+disk it stops at the hourglass, and from the floppy MacWorks stops with a
+Sad Mac (0F0002); why isn't known yet.
 
 **Floppies** are Disk Copy 4.2 images (`.dc42`, `.image`, `.img`). A Lisa 2
 has one 3.5" drive, a Lisa 1 two Twiggy drives. Choose one with *Floppy* in
 the menu, or start BMLisa with one in the drive with `floppy=` in
 `cmdline.txt` (a path with no spaces in it). The Lisa ejects disks itself,
-from its software; inserting another in the menu replaces the one in the
-drive.
+from its software. With a disk in the drive, *Floppy* in the menu offers
+*Insert Another...* or *Eject*, which pulls it out as a paper clip in a
+real Lisa's drive does: let the Lisa eject it when you can.
+
+**Ejecting the hard disk:** with one attached, *Hard Disk* in the menu
+offers *Insert Another...* or *Eject*, which unplugs the ProFile: shut the
+Lisa down first. The Lisa then starts with no hard disk (from a floppy)
+until another is chosen; the choice is kept (`harddisk=none`).
 
 From the web UI, clicking a disk image uses it: a hard disk image becomes
 the hard disk and the Lisa starts again from it; a floppy goes in the
@@ -152,8 +178,10 @@ The Lisa's screen is 720 x 364 pixels, black and white, on a 4:3 screen
 second, and `config.txt` sets the display to 720p at 60 Hz. When the
 display's refresh rate is within 2% of the Lisa's, each frame is shown on
 exactly one display refresh, so the mouse moves smoothly; otherwise the
-Lisa keeps exact time and frames are shown as they come. On a Pi 4 and 5
-BMLisa sets the display to the Lisa's rate itself. `vsync=on` or
+Lisa keeps exact time and frames are shown as they come. At 60 Hz the Lisa
+is locked to the display, so it runs 0.8% fast, which isn't noticeable (the
+Pi 4 and 5 set a display's rate only when it is within 0.5% of the
+emulator's, and 59.5 Hz isn't). `vsync=on` or
 `vsync=off` in `cmdline.txt` (or *Frame Lock* in the menu) forces one or
 the other.
 

@@ -162,6 +162,42 @@ differ blank start rom
 has_colour blank rom 255 255 255 "the boot ROM draws its screen"
 no_log blank "stopped" "the Lisa runs"
 
+# No hard disk (ejected in the menu: harddisk=none): no blank one is made,
+# and the boot ROM finds no ProFile.
+card nohd
+run nohd 60 "harddisk=none" "1800 shot rom.ppm\n1810 quit\n"
+check_log nohd "no hard disk" "starts with no hard disk"
+no_log nohd "stopped" "the Lisa runs without one"
+if [ ! -e "$OUT/nohd/disks/profile.raw" ]; then
+    pass "nohd: no blank hard disk made"
+else
+    fail "nohd" "a blank hard disk was made"
+fi
+has_colour nohd rom 255 255 255 "the boot ROM draws its screen"
+
+# A hard disk image of the wrong size isn't used (the Lisa only showed its
+# error 84 for it).
+card wrongsize
+head -c 100000 /dev/zero > "$OUT/wrongsize/disks/profile.raw"
+run wrongsize 60 "" "120 quit\n"
+check_log wrongsize "isn't a ProFile image" "a hard disk of the wrong size is refused"
+
+# LisaEm's hard disks (Disk Copy 4.2: data, then tags, the blocks
+# interleaved): disks/profile.dc42 is used when there is no profile.raw.
+# tools/hostsim/dc42.py makes one from a raw image (blank here).
+card lisaem
+head -c 10350592 /dev/zero > "$OUT/lisaem/blank.raw"
+python3 "$HERE/dc42.py" "$OUT/lisaem/blank.raw" "$OUT/lisaem/disks/profile.dc42"
+rm "$OUT/lisaem/blank.raw"
+run lisaem 60 "" "600 shot rom.ppm\n610 quit\n"
+check_log lisaem "hard disk \\./disks/profile\\.dc42" "uses LisaEm's disks/profile.dc42"
+no_log lisaem "isn't a ProFile image|stopped" "the Lisa runs from it"
+if [ ! -e "$OUT/lisaem/disks/profile.raw" ]; then
+    pass "lisaem: no profile.raw made beside it"
+else
+    fail "lisaem" "a blank profile.raw was made"
+fi
+
 # The parameter memory (the Lisa's battery-backed settings) is read from
 # bmlisa.pram at start, and isn't written while it doesn't change.
 card pram
@@ -220,6 +256,44 @@ if [ -n "$LOS" ]; then
     no_log los "processor stopped" "the processor never stops"
 else
     skip "los" "set BMLISA_LOS to a hard disk image with the Lisa Office System"
+fi
+
+# The Lisa Office System from a LisaEm hard disk (the same disk, made
+# LisaEm's): it boots and shuts down, and Disk Copy's checksums are right
+# after its writes.
+if [ -n "$LOS" ]; then
+    card los_dc42
+    case "$LOS" in
+    *.zip) unzip -p "$LOS" '*profile.raw' > "$OUT/los_dc42/los.raw" ;;
+    *) cp "$LOS" "$OUT/los_dc42/los.raw" ;;
+    esac
+    python3 "$HERE/dc42.py" "$OUT/los_dc42/los.raw" "$OUT/los_dc42/disks/profile.dc42"
+    rm "$OUT/los_dc42/los.raw"
+    run los_dc42 60 "" "4500 shot desk.ppm\n4510 key 67 1\n4515 key 67 0\n7000 shot off.ppm\n7010 quit\n"
+    differ los_dc42 desk off
+    check_log los_dc42 "the Lisa switched itself off" "boots and shuts down from a LisaEm disk"
+    if python3 "$HERE/dc42.py" --check "$OUT/los_dc42/disks/profile.dc42"; then
+        pass "los_dc42: Disk Copy's checksums are right"
+    else
+        fail "los_dc42" "Disk Copy's checksums are wrong"
+    fi
+else
+    skip "los_dc42" "set BMLISA_LOS to a hard disk image with the Lisa Office System"
+fi
+
+# Another hard disk while the Lisa runs (the web UI): the Lisa starts again
+# from it, on a ProFile switched off and on (the boot ROM gave its error 52,
+# or the processor halted); then a plain restart.
+if [ -n "$LOS" ]; then
+    card switch "$LOS"
+    head -c 10350592 /dev/zero > "$OUT/switch/disks/blank.raw"
+    run switch 60 "" "4500 shot desk.ppm\n4510 run ./disks/blank.raw\n5400 shot blank.ppm\n5410 webui coldstart\n6300 shot again.ppm\n6310 quit\n"
+    check_log switch "hard disk \\./disks/blank\\.raw" "takes another hard disk while running"
+    no_log switch "stopped" "the processor never stops"
+    differ switch desk blank
+    has_colour switch again 255 255 255 "the boot ROM runs after a restart"
+else
+    skip "switch" "set BMLISA_LOS to a hard disk image with the Lisa Office System"
 fi
 
 if [ -n "$LOS" ] && [ -n "$FLOPPY" ]; then
