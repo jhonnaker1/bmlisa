@@ -938,6 +938,7 @@ INLINE uint8 LisaGetB(uint32 address)
                     mmuSTATUS&=(~8);
                     m68ki_bus_error(address, MODE_READ);
              }
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 INLINE uint16 LisaGetW(uint32 address)
 {
@@ -978,6 +979,7 @@ INLINE uint16 LisaGetW(uint32 address)
                     mmuSTATUS&=(~8);
                     m68ki_bus_error(address, MODE_READ);
              }
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 
 uint16 LisaGetWDebug(uint32 address)

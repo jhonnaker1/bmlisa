@@ -1132,6 +1132,7 @@ int    disass(char *buf, uint16 *inst_stream)
         sprintf(buf, "LINE F   %04x", inst_stream[0]);
         return 1;
     }
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.1 – 2026-11-09
+
+- The Pi: 0.1.0 stopped before the Lisa started (a black screen, F12 did
+  nothing; the log said "Emulator has not moved for 3 s"). IDLE is compiled
+  as C++, and seven of its functions returning a value fell off their end
+  without one; GCC, which builds the Pi kernels, then leaves out code it
+  takes as unreachable, so a check for a missing debug.lst was gone and the
+  start looped forever (and a bus error on reading memory could go wrong
+  too). They return 0 now. The PC simulator, built with clang, didn't show
+  it; GitHub's build now compiles the simulator with GCC, with a missing
+  return value as an error
+- Tested on a Raspberry Pi 5: the Lisa Office System 3.1 from the hard
+  disk, to the desktop, and shut down with the power button
+
 ## 0.1.0 – 2026-10-22
 
 - BMLisa starts, from BMApple2 0.4.2: IDLE 0.10 (the Lisa emulator by

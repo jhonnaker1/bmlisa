@@ -68,11 +68,13 @@ init_trace(FILE * logStream) {
 	if (logStream!=NULL) {
 		log=logStream;
 	}
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 
 int
 deinit_trace(void) {
 	if (trace_init_flag) free(trace_log_tab);
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 
 // utility func 
@@ -91,6 +93,7 @@ check_debug(char *func_name) {
 
 int
 do_notrace(char *fmt,...) {
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 
 // helper function to format messages

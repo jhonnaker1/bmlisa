@@ -28,6 +28,12 @@ jobs:
           path: ~/.cache/bmlisa/toolchains
           key: arm-gnu-toolchain-15.2.rel1-arm-none-eabi-aarch64-none-elf
 
+      # IDLE is compiled as C++, where a function that falls off its end
+      # without returning a value lets GCC drop code (0.1.0 hung on the Pi):
+      # the PC simulator, built here with GCC, makes that an error.
+      - name: IDLE's return values (PC simulator, GCC)
+        run: make -s -C tools/hostsim -j"$(nproc)" IDLE_CFLAGS="-x c++ -Werror=return-type"
+
       - name: Build
         run: ./build_sdcard.sh
 

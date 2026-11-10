@@ -8,7 +8,7 @@ The original copyright, license, and attribution notices supplied with these com
 
 BMLisa incorporates [IDLE](https://sourceforge.net/projects/idle-lisa-emu/), the Apple Lisa emulator by Gilles Fétis, pre-release alpha 0.10 (its Subversion repository, `svn.code.sf.net/p/idle-lisa-emu/code`, revision 26), under a BSD licence. Its licence is `third_party/idle/doc/licence.txt`; its notice is in [`sdcard/licenses/idle.txt`](../sdcard/licenses/idle.txt).
 
-`third_party/idle/` is that revision unmodified, but without the files of it whose licences don't allow BMLisa, which are left out:
+`third_party/idle/` is that revision unmodified but for seven `return 0;` lines (functions returning a value that fell off their end, which GCC compiles as unreachable: `debug/trace.c`, `mmu/mmu.c`, `time/timer.c`, `cpu/debug.c`), and without the files of it whose licences don't allow BMLisa, which are left out:
 
 - **Its 68000 processor**, `cpu/m68k*`: Musashi 3.3 by Karl Stenerud (as IDLE changed it), which may only be used for non-commercial purposes, other uses needing the author's agreement. That isn't compatible with the GNU General Public License. BMLisa uses today's Musashi instead (below), with IDLE's changes to it made in BMLisa's own `src/port/lisa_cpu.c` (the 68000's bus errors as IDLE did them, the instruction before last) and `src/port/bmlisa_m68kconf.h`.
 - **Its serial chip**, `io/8530scc.c`: from Mini vMac (SCCEMDEV.c, by Philip Cummins, Weston Pawlowski and Paul C. Pratt), under version 2 of the GNU General Public License only, which can't be combined with code under version 3 (Circle). BMLisa's own serial chip, `src/port/scc.cpp`, takes its place.

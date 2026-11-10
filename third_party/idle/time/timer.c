@@ -51,6 +51,7 @@ int idle_timer_create(	void (*callback)(int),
 	timer_tab[g_timer_num].start=g_timer_clock;
 	timer_tab[g_timer_num].expire=idle_timer_add(g_timer_clock,delta);	
 	g_timer_num++;
+	return 0; /* BMLisa: GCC treats falling off the end as unreachable */
 }
 
 void idle_timer_update_clock(idle_time delta) {
