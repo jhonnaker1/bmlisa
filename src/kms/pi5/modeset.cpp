@@ -1,10 +1,25 @@
 //
 // modeset.cpp
 //
-// See modeset.h.
+// BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+// Copyright (C) 2026 aminch <https://github.com/aminch>
 //
-// This file is part of BMLisa, a bare metal Apple Lisa emulator for
-// the Raspberry Pi. See LICENSE for licensing details.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Modified for BMApple2 and BMLisa.
+//
+// See modeset.h.
 //
 
 #include "modeset.h"
@@ -432,14 +447,25 @@ bool ModeSetter::Apply(Hvs &hvs, const Timing &t, bool hdmi_sink, unsigned audio
   }
   ok = RecenterFifo() && ok;
 
-  // HDMI sound's clock regeneration for the new TMDS rate (external CTS).
-  uint32_t crp = Rd(m_Core + hdmi::CrpCfg);
-  if (audio_fs != 0 && (crp & Bit(24))) {
-    uint32_t cts = AudioCts(t.pixel_hz, crp & 0xFFFFF, audio_fs);
-    Wr(m_Core + hdmi::Cts0, cts);
-    Wr(m_Core + hdmi::Cts1, cts);
-  }
+  // HDMI sound's clock regeneration for the new TMDS rate.
+  SetAudioClock(t, audio_fs);
   return ok;
+}
+
+void ModeSetter::SetAudioClock(const Timing &t, unsigned audio_fs) {
+  // Only once the sound has set its N (external CTS).
+  uint32_t crp = Rd(m_Core + hdmi::CrpCfg);
+  if (audio_fs == 0 || !(crp & Bit(24))) {
+    return;
+  }
+  uint32_t cts = AudioCts(t.pixel_hz, crp & 0xFFFFF, audio_fs);
+  uint32_t was = Rd(m_Core + hdmi::Cts0);
+  Wr(m_Core + hdmi::Cts0, cts);
+  Wr(m_Core + hdmi::Cts1, cts);
+  if (cts != was) {
+    CLogger::Get()->Write(FromModeSet, LogNotice, "HDMI sound: CTS %u (was %u) for %u kHz",
+                          cts, was, (unsigned)(t.pixel_hz / 1000));
+  }
 }
 
 } // namespace kms

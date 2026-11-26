@@ -70,6 +70,13 @@ from its software. With a disk in the drive, *Floppy* in the menu offers
 *Insert Another...* or *Eject*, which pulls it out as a paper clip in a
 real Lisa's drive does: let the Lisa eject it when you can.
 
+**USB sticks:** up to three FAT USB sticks can hold disk images too. While
+one is plugged in, it shows as a folder `USB:` (`USB2:`, `USB3:`) in the
+card's top folder, in the menu's file browser and the web UI: choose a
+floppy or hard disk image in it as on the card. Pulling a stick out ejects
+the floppy and unplugs the hard disk loaded from it; the hard disk is kept
+in `bmlisa.cfg`, so it is used again at the next boot with the stick in.
+
 **Ejecting the hard disk:** with one attached, *Hard Disk* in the menu
 offers *Insert Another...* or *Eject*, which unplugs the ProFile: shut the
 Lisa down first. The Lisa then starts with no hard disk (from a floppy)
@@ -162,7 +169,7 @@ The Lisa's keyboard has no Control, Escape, function or arrow keys.
 | Windows (Command on a Mac keyboard), Ctrl | Apple (Command)            |
 | Left Alt, right Alt    | Left and right Option                         |
 | Menu (beside right Ctrl) | Enter (beside the Lisa's space bar)         |
-| Caps Lock              | Caps Lock, which stays down until pressed again, as the Lisa's does |
+| Caps Lock              | Caps Lock, which stays down until pressed again, as the Lisa's does; the keyboard's light shows it |
 | Num Lock               | The keypad's Clear                            |
 
 The other keys are where they are on a US Lisa keyboard; the keypad is the
@@ -256,7 +263,7 @@ edited from the web UI.
 | Option              | Values                       | Default  | What it does |
 |---------------------|------------------------------|----------|--------------|
 | `machine`           | `lisa2`, `lisa1`             | first with ROMs | The Lisa to emulate (see ROMs) |
-| `harddisk`          | a path on the card           | `disks/profile.raw` | The ProFile hard disk image (see Disks) |
+| `harddisk`          | a path on the card (or `/USB:/...`), `none` | `disks/profile.raw` | The ProFile hard disk image (see Disks); `none` for no ProFile |
 | `floppy`            | a path on the card           | none     | A floppy image to put in the drive at start |
 | `monitor`           | `white`, `green`, `amber`    | `white`  | The screen's colour |
 | `aspect`            | number                       | `1.0`    | Multiplies the width of the picture |
@@ -267,7 +274,7 @@ edited from the web UI.
 | `crt_gpu`           | `0`, `1`                     | `1`      | Pi 4 and 5: the 3D GPU draws the smooth and CRT pictures; `0` has the ARM draw them (see [PI4.md](PI4.md)) |
 | `vsync`             | `auto`, `on`, `off`          | `auto`   | Lock frames to the display (see Display and timing) |
 | `resolution`        | `auto`, `1920x1080`, `1280x720` | `auto` | Pi 5 only, with `video_driver=kms`: the display's resolution; `auto` keeps the one the firmware chose (the Pi 5's firmware ignores `hdmi_mode`) |
-| `video_driver`      | `kms`, `hvs`, `firmware`     | `kms`    | Pi 4 and 5: `kms` runs the display at the Lisa's exact frame rate; `hvs` leaves the mode set in `config.txt`; `firmware` uses the firmware's framebuffer, if the others give trouble (see [PI4.md](PI4.md) and [PI5.md](PI5.md)) |
+| `video_driver`      | `kms`, `hvs`, `firmware`     | `kms`    | Pi 4 and 5: `kms` sets the display's mode for the emulator's frame rate where it is close enough (not for the Lisa's 59.5 Hz); `hvs` leaves the mode set in `config.txt`; `firmware` uses the firmware's framebuffer, if the others give trouble (see [PI4.md](PI4.md) and [PI5.md](PI5.md)) |
 | `gpio_joysticks`    | `0`, `1`                     | `0`      | Joysticks on the GPIO header, which move the menu's cursor (BMC64's "GPIO Config 1" wiring) |
 | `enable_logging`    | `off`, `uart`, `file`        | `off`    | Where the log goes (see Logging) |
 | `network`           | `off`, `ethernet`, `wifi`    | `off`    | Networking (see Networking and the web UI) |
@@ -275,6 +282,7 @@ edited from the web UI.
 | `webui_pin`         | digits                       | none     | PIN for the web UI |
 | `timezone`          | minutes east of UTC          | `0`      | Time zone for the network clock |
 | `usbpowerdelay`     | milliseconds                 | Circle's | Circle: wait for USB devices to power up (by default 300 ms, 510 ms behind a hub) |
+| `task_time_us`      | microseconds                 | `1000` on a Pi 4 or 5, `0` on older | The least time a frame gives the network and web UI (`0`: one turn); more makes them faster while the Lisa is busy |
 
 ## Logging
 

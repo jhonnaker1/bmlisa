@@ -1,3 +1,27 @@
+//
+// network_time_sync.cpp
+//
+// BMC64 - A bare metal Commodore emulator for Raspberry Pi
+// Copyright (C) 2026 aminch <https://github.com/aminch>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// From BMC64's src/network_time_sync.cpp, unchanged.
+//
+// Modified for BMApple2 and BMLisa.
+//
+
 #include "network_time_sync.h"
 
 #include <circle/logger.h>
@@ -42,13 +66,18 @@ public:
       CScheduler::Get()->Sleep(1);
     }
 
+    // A failed try is tried again soon at first: the first lookup comes
+    // right after DHCP, when the network's DNS can still be slow to answer
+    // (a Pi 5 on Wi-Fi), and the clock then ran from the card's saved
+    // time for 5 minutes or more.
+    unsigned failures = 0;
     for (;;) {
       CIPAddress server;
       CDNSClient dns(mNetwork);
       if (!dns.Resolve("pool.ntp.org", &server)) {
         CLogger::Get()->Write("ntp", LogWarning,
                               "Cannot resolve NTP server: pool.ntp.org");
-        CScheduler::Get()->Sleep(300);
+        CScheduler::Get()->Sleep(RetryDelay(++failures));
         continue;
       }
 
@@ -57,7 +86,7 @@ public:
       if (timestamp == 0) {
         CLogger::Get()->Write("ntp", LogWarning,
                               "Cannot get time from NTP server: pool.ntp.org");
-        CScheduler::Get()->Sleep(300);
+        CScheduler::Get()->Sleep(RetryDelay(++failures));
         continue;
       }
 
@@ -68,8 +97,15 @@ public:
         CLogger::Get()->Write("ntp", LogWarning,
                               "Cannot set system time from NTP");
       }
+      failures = 0;
       CScheduler::Get()->Sleep(900);
     }
+  }
+
+  // Seconds to wait after the FAILURES'th failure in a row: 15 s for the
+  // first 8 (two minutes), then 5 minutes.
+  static unsigned RetryDelay(unsigned failures) {
+    return failures <= 8 ? 15 : 300;
   }
 
 private:

@@ -1,10 +1,25 @@
 //
 // display.cpp
 //
-// See display.h.
+// BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+// Copyright (C) 2026 aminch <https://github.com/aminch>
 //
-// This file is part of BMLisa, a bare metal Apple Lisa emulator for
-// the Raspberry Pi. See LICENSE for licensing details.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Modified for BMApple2 and BMLisa.
+//
+// See display.h.
 //
 
 #include "display.h"
@@ -250,11 +265,13 @@ bool Display::MatchRate(double fps, unsigned audio_fs, unsigned lines) {
     CLogger::Get()->Write(FromDisplay, LogNotice,
                           "No %ux%u mode at %.2f Hz the display lists; keeping %.2f Hz",
                           current.h_active, current.v_active, fps, current.Refresh());
+    m_ModeSetter.SetAudioClock(current, audio_fs);
     return false;
   }
   if (wanted.vic == current.vic &&
       (wanted.pixel_hz > current.pixel_hz ? wanted.pixel_hz - current.pixel_hz
                                           : current.pixel_hz - wanted.pixel_hz) < 1000) {
+    m_ModeSetter.SetAudioClock(current, audio_fs);
     return false;
   }
   m_ModeSetter.Set(m_Hvs, wanted, audio_fs, Reinstall, this);

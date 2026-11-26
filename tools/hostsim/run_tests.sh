@@ -1,5 +1,25 @@
 #!/bin/bash
 #
+# run_tests.sh
+#
+# BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+# Copyright (C) 2026 aminch <https://github.com/aminch>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Modified for BMApple2 and BMLisa.
+#
 # Runs the emulator port on the PC (see host_sim.c) through a set of
 # scripted tests and checks the results.
 #
@@ -174,6 +194,74 @@ else
     fail "nohd" "a blank hard disk was made"
 fi
 has_colour nohd rom 255 255 255 "the boot ROM draws its screen"
+
+# USB sticks: stick 1 is the folder usb/. The card's top folder lists it as
+# USB: while it is in (fswrap.c, as on the Pi), and /USB:/x is the stick's
+# x. A hard disk on the stick is used; pulling the stick out unplugs it, and
+# bmlisa.cfg keeps it for the next boot.
+card usbsticks
+mkdir -p "$OUT/usbsticks/usb/lisa"
+head -c 10350592 /dev/zero > "$OUT/usbsticks/usb/hd.raw"
+printf '# BMLisa settings\n' > "$OUT/usbsticks/bmlisa.cfg"
+BMLISA_USB=1 run usbsticks 60 "harddisk=usb/hd.raw" "100 ls .\n101 stat ./USB:\n102 stat ./USB:/hd.raw\n103 ls ./USB:/\n104 stat ./USB2:\n300 usb 1 0\n360 ls .\n361 stat ./USB:\n400 quit\n"
+check_log usbsticks "hard disk .*usb/hd\\.raw" "a hard disk on the stick is used"
+check_log usbsticks "ls \\.:.* USB:" "the card's top folder lists the stick as USB:"
+check_log usbsticks "stat \\./USB:: dir" "USB: is a folder"
+check_log usbsticks "stat \\./USB:/hd\\.raw: file" "and /USB:/hd.raw the stick's file"
+check_log usbsticks "ls \\./USB:/:.* lisa" "USB: lists the stick's files"
+check_log usbsticks "stat \\./USB2:: missing" "USB2:, with no second stick, isn't there"
+check_log usbsticks "USB stick USB: removed: 1 ejected" "pulling the stick out unplugs its hard disk"
+check_log usbsticks "frame 361: stat \\./USB:: missing" "and USB: is gone"
+no_log usbsticks "stopped" "the Lisa runs on"
+if ! grep -q "^harddisk=none" "$OUT/usbsticks/bmlisa.cfg"; then
+    pass "usbsticks: the stick's hard disk is kept for the next boot"
+else
+    fail usbsticks "pulling the stick out saved harddisk=none"
+fi
+
+# Wi-Fi settings keep the key (from BMApple2): wpa_supplicant.conf with a
+# key worked out from the password (64 hex digits, not in quotes), then one
+# with a password that has a " in it. Menu (F12), Network (eight down),
+# Wi-Fi Country (four down), Return twice: the country is saved again, and
+# the key must be written back as it was.
+wifi_keys() {
+    local f=120 k script=""
+    for k in 69 81 81 81 81 81 81 81 81 40 81 81 81 81 40 40; do
+        script="$script$f key $k 1\n$((f + 1)) key $k 0\n"
+        f=$((f + 10))
+    done
+    printf '%s' "${script}400 quit\n"
+}
+HEXKEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+card wifihex
+card wifiquote
+printf '# original\ncountry=GB\n\nnetwork={\n\tssid="home"\n\tpsk=%s\n\tkey_mgmt=WPA-PSK\n}\n' "$HEXKEY" > "$OUT/wifihex/wpa_supplicant.conf"
+printf '# original\ncountry=GB\n\nnetwork={\n\tssid="home"\n\tpsk="say "hi" 123"\n\tkey_mgmt=WPA-PSK\n}\n' > "$OUT/wifiquote/wpa_supplicant.conf"
+run wifihex 60 "" "$(wifi_keys)"
+run wifiquote 60 "" "$(wifi_keys)"
+for name in wifihex wifiquote; do
+    if grep -q '^# original' "$OUT/$name/wpa_supplicant.conf"; then
+        fail $name "wpa_supplicant.conf wasn't written again (the menu keys missed)"
+    fi
+done
+if grep -q "^	psk=$HEXKEY\$" "$OUT/wifihex/wpa_supplicant.conf" && \
+   grep -q '^country=GB' "$OUT/wifihex/wpa_supplicant.conf"; then
+    pass "wifihex: a 64-digit key is written back whole, without quotes"
+else
+    fail wifihex "the key was changed (see out/wifihex/wpa_supplicant.conf)"
+fi
+if grep -q '^	psk="say "hi" 123"$' "$OUT/wifiquote/wpa_supplicant.conf"; then
+    pass "wifiquote: a password with a \" in it is written back whole"
+else
+    fail wifiquote "the password was changed (see out/wifiquote/wpa_supplicant.conf)"
+fi
+
+# Caps Lock locks down on the Lisa: each press turns it on or off, with the
+# keyboard's light.
+card capslock
+run capslock 60 "" "300 key 57 1\n302 key 57 0\n320 key 57 1\n322 key 57 0\n340 quit\n"
+check_log capslock "frame 300: Caps Lock light on" "the first press lights Caps Lock"
+check_log capslock "frame 320: Caps Lock light off" "the second puts it out"
 
 # A hard disk image of the wrong size isn't used (the Lisa only showed its
 # error 84 for it).

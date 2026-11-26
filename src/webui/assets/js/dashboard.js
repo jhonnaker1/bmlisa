@@ -1,6 +1,32 @@
+//
+// dashboard.js
+//
+// BMC64 - A bare metal Commodore emulator for Raspberry Pi
+// Copyright (C) 2026 aminch <https://github.com/aminch>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Modified for BMA800XL from BMC64's src/webui/assets/js/dashboard.js:
+// BMA800XL's name and version, without profiles; a storage bar for each
+// USB stick.
+//
+// Modified for BMApple2 and BMLisa.
+//
 // Dashboard view and the Pi/system controls: status polling, hardware and
 // storage meters, and the reboot / shut down / restart / disable-web-UI
 // actions.
+//
 
 import { $, fmtUptime, fmtKB } from "./util.js";
 import * as api from "./api.js";
@@ -136,19 +162,36 @@ export function startStatusPolling() {
   pollStatus();
 }
 
+// A storage bar for the SD card and each USB stick plugged in.
 export async function refreshVolumes() {
+  const box = $("d-storage");
+  let volumes;
   try {
-    const v = (await api.getVolumes()).volumes || [];
-    const sd = v[0];
-    if (!sd || !sd.total_kb) { $("d-storage").hidden = true; return; }
-    const usedKb = sd.total_kb - sd.free_kb;
-    const pct = Math.min(100, Math.round((usedKb / sd.total_kb) * 100));
-    $("d-storage-bar").style.width = pct + "%";
-    $("d-storage-txt").textContent =
-      fmtKB(sd.free_kb) + " free of " + fmtKB(sd.total_kb);
-    $("d-storage").hidden = false;
+    volumes = (await api.getVolumes()).volumes || [];
   } catch (e) {
-    $("d-storage").hidden = true;
+    volumes = [];
+  }
+  box.textContent = "";
+  for (const v of volumes) {
+    if (!v.total_kb) continue;
+    const meter = document.createElement("div");
+    meter.className = "meter";
+    const top = document.createElement("div");
+    top.className = "meter-top";
+    const label = document.createElement("span");
+    label.textContent = (v.kind === "sdcard" ? "SD" : v.id) + " storage";
+    const text = document.createElement("span");
+    text.textContent = fmtKB(v.free_kb) + " free of " + fmtKB(v.total_kb);
+    top.append(label, text);
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill";
+    const pct = Math.min(100, Math.round(((v.total_kb - v.free_kb) / v.total_kb) * 100));
+    fill.style.width = pct + "%";
+    bar.appendChild(fill);
+    meter.append(top, bar);
+    box.appendChild(meter);
   }
 }
 

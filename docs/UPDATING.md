@@ -6,14 +6,19 @@ IDLE is in `third_party/idle`, from its Subversion repository
 (`svn.code.sf.net/p/idle-lisa-emu/code`, revision 26, its last), without
 the files `src/port/idle.mk` lists as left out: its 68000 (Musashi 3.3,
 `cpu/m68k*`) and serial chip (`io/8530scc.c`), whose licences don't allow
-BMLisa, and Apple's video PROM. Nothing else in it is changed. If IDLE
-changes again:
+BMLisa, and Apple's video PROM. BMLisa changed seven of its files (the
+fixes and hooks `docs/THIRD_PARTY.md` lists); `src/patches/idle_bmlisa_changes.diff`
+has those changes. If IDLE changes again:
 
 ```
 svn export -r <revision> https://svn.code.sf.net/p/idle-lisa-emu/code new-idle
 ```
 
-copy its files over `third_party/idle` but those, and compare:
+copy its files over `third_party/idle` but those, apply BMLisa's changes
+again (`git apply -3 src/patches/idle_bmlisa_changes.diff`, as far as they
+still fit), build the PC simulator with GCC to catch functions that don't
+return their value (`make -C tools/hostsim CC=gcc-16 CXX=g++-16
+IDLE_CFLAGS="-x c++ -Werror=return-type"`), and compare:
 
 | File | What it has to do with IDLE |
 | --- | --- |

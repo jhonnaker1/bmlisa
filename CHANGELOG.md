@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0 – 2026-11-25
+
+- From BMA800XL 1.4.3 to 1.4.7, by way of BMApple2 0.4.5:
+  - USB sticks: up to three FAT sticks show as the folders `USB:`,
+    `USB2:` and `USB3:` in the card's top folder, in the menu's file
+    browser and the web UI, so floppy and hard disk images can be used
+    from them. Pulling one out ejects the floppy and unplugs the hard disk
+    loaded from it; `bmlisa.cfg` keeps the hard disk for the next boot
+  - Pi 5: the fan follows the chip's temperature (off below 50 °C, faster
+    in four steps up to 75 °C); it stayed off. The power button's code is
+    in `src/pi45`
+  - The web UI: works in Safari (idle connections stay open until a
+    request arrives), uploads about five times faster, a fixed upload
+    bug, and files sorted in its file view
+  - The licence notices at the top of each file, as BMA800XL has them
+- The Pi 5 runs at its full clock (2.4 GHz; it was left at 1.5 GHz), as
+  BMMacintosh and BMAtariST do
+- Circle's tasks (the network, the web UI) get at least 1 ms a frame on
+  the Pi 4 and 5 (`task_time_us`, from BMAmiga): one turn a frame starved
+  them while the Lisa was busy
+- The network clock: a failed NTP lookup is tried again after 15 s at
+  first, not 5 minutes (from BMAmiga), so the Lisa's clock is right sooner
+- The menu's Wi-Fi settings (from BMApple2): a 64-digit hex key was cut to
+  63 and put in quotes, and a password with a `"` in it was cut, whenever
+  a Wi-Fi setting was changed, which broke Wi-Fi. Time Zone has the half
+  and three quarter hour zones
+- Caps Lock lights the keyboard's Caps Lock light (from BMApple2)
+- Big blocks of memory (over 512 KB, which Circle never reuses once freed)
+  are kept and used again (`src/port/bigalloc.c`, from BMAtariST): a Lisa
+  1's Twiggy disk lost 871 KB at every eject
+- A hard disk or floppy started from the web UI was kept in `bmlisa.cfg`
+  with its volume (`SD:/disks/x.dc42`), and the next boot didn't find it
+- Sweep: the About page says "(none)" with no hard disk; Apple II file
+  names and KEGS left in comments and documents; the licence notices say
+  which files BMLisa changed; `docs/UPDATING.md` and
+  `src/patches/idle_bmlisa_changes.diff` for BMLisa's changes to IDLE
+- Tests: USB sticks, the Wi-Fi key and password, Caps Lock's light
+
 ## 0.1.2 – 2026-11-10
 
 - LisaEm's hard disks: a `.dc42` ProFile image (Disk Copy 4.2, its blocks

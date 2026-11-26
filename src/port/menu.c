@@ -1,4 +1,22 @@
 /*
+ * BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+ * Copyright (C) 2026 aminch <https://github.com/aminch>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Modified for BMApple2 and BMLisa.
+ *
  * menu.c - the BMLisa menu.
  *
  * F12, a gamepad's Home button or Select+Start open it: the Lisa's disks,
@@ -7,9 +25,6 @@
  * next boot.
  *
  * From BMApple2's menu.c.
- *
- * This file is part of BMLisa, a bare metal Apple Lisa emulator for the
- * Raspberry Pi. See LICENSE for licensing details.
  */
 
 #include <stdint.h>
@@ -279,7 +294,34 @@ static void video_menu(void)
 
 /* ---- Network --------------------------------------------------------------- */
 
-static char wifi_ssid[33], wifi_psk[64], wifi_country[3];
+/* The time zones offered: every whole hour from UTC-12 to UTC+14, and the
+   zones a half or three quarters of an hour off (Newfoundland, India,
+   Nepal, Myanmar, central Australia, the Chatham Islands...), in minutes
+   east of UTC (the timezone option). */
+static const int time_zones[] = {
+	-720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180,
+	-120, -60, 0, 60, 120, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420,
+	480, 525, 540, 570, 600, 630, 660, 720, 765, 780, 840,
+};
+#define TIME_ZONES ((int) (sizeof time_zones / sizeof time_zones[0]))
+
+/* "UTC", "UTC+10" or "UTC+5:30". */
+static void time_zone_name(char *text, size_t size, int minutes)
+{
+	int a = minutes < 0 ? -minutes : minutes;
+	if (minutes == 0)
+		snprintf(text, size, "UTC");
+	else if (a % 60 == 0)
+		snprintf(text, size, "UTC%c%d", minutes < 0 ? '-' : '+', a / 60);
+	else
+		snprintf(text, size, "UTC%c%d:%02d", minutes < 0 ? '-' : '+', a / 60, a % 60);
+}
+
+/* The Wi-Fi network: its name, and its password (8 to 63 characters,
+   written in quotes) or a key worked out from it (64 hex digits, written
+   as they are: wifi_psk_raw), as wpa_supplicant.conf has them. */
+static char wifi_ssid[33], wifi_psk[65], wifi_country[3];
+static int wifi_psk_raw;
 
 static void wpa_path(char *path, size_t size)
 {
@@ -288,18 +330,31 @@ static void wpa_path(char *path, size_t size)
 	snprintf(path, size, "%s%s%s", root, len > 0 && root[len - 1] == '/' ? "" : "/", WPA_CONFIG);
 }
 
-static void copy_quoted(char *dst, size_t size, const char *src)
+/* A value from wpa_supplicant.conf: in quotes up to the last one on the
+   line, as wpa_supplicant reads it (so a password may have a " in it), or
+   up to the end of the line. Returns whether it was in quotes. */
+static int copy_quoted(char *dst, size_t size, const char *src)
 {
-	const char *end;
-	if (*src == '"')
+	const char *end = src + strcspn(src, "\r\n");
+	int quoted = FALSE;
+	if (*src == '"') {
+		const char *last;
 		src++;
-	end = strchr(src, '"');
-	if (end == NULL)
-		end = src + strcspn(src, "\r\n");
+		for (last = end; last > src && last[-1] != '"'; last--)
+			;
+		if (last > src) {
+			end = last - 1;
+			quoted = TRUE;
+		}
+	} else {
+		while (end > src && (end[-1] == ' ' || end[-1] == '\t'))
+			end--;
+	}
 	if ((size_t) (end - src) >= size)
 		end = src + size - 1;
 	memcpy(dst, src, end - src);
 	dst[end - src] = '\0';
+	return quoted;
 }
 
 static void read_wifi_config(void)
@@ -307,6 +362,7 @@ static void read_wifi_config(void)
 	char path[256], line[160];
 	FILE *f;
 	wifi_ssid[0] = wifi_psk[0] = '\0';
+	wifi_psk_raw = FALSE;
 	strcpy(wifi_country, "US");
 	wpa_path(path, sizeof(path));
 	f = fopen(path, "r");
@@ -319,7 +375,7 @@ static void read_wifi_config(void)
 		else if (strncmp(p, "ssid=", 5) == 0 && wifi_ssid[0] == '\0')
 			copy_quoted(wifi_ssid, sizeof(wifi_ssid), p + 5);
 		else if (strncmp(p, "psk=", 4) == 0 && wifi_psk[0] == '\0')
-			copy_quoted(wifi_psk, sizeof(wifi_psk), p + 4);
+			wifi_psk_raw = !copy_quoted(wifi_psk, sizeof(wifi_psk), p + 4);
 	}
 	fclose(f);
 }
@@ -333,7 +389,9 @@ static int write_wifi_config(void)
 	if (f == NULL)
 		return FALSE;
 	fprintf(f, "country=%s\n\nnetwork={\n\tssid=\"%s\"\n", wifi_country, wifi_ssid);
-	if (wifi_psk[0] != '\0')
+	if (wifi_psk[0] != '\0' && wifi_psk_raw)
+		fprintf(f, "\tpsk=%s\n\tkey_mgmt=WPA-PSK\n", wifi_psk);
+	else if (wifi_psk[0] != '\0')
 		fprintf(f, "\tpsk=\"%s\"\n\tkey_mgmt=WPA-PSK\n", wifi_psk);
 	else
 		fprintf(f, "\tkey_mgmt=NONE\n");
@@ -347,6 +405,8 @@ static void edit_wifi(const char *title, char *value, size_t size, int secret)
 	snprintf(text, sizeof(text), "%s", value);
 	if (osd_edit(title, text, size < sizeof(text) ? size : sizeof(text), secret)) {
 		snprintf(value, size, "%s", text);
+		if (value == wifi_psk)
+			wifi_psk_raw = FALSE;     /* typed: a password */
 		if (write_wifi_config())
 			reboot_needed = TRUE;
 		else
@@ -389,8 +449,10 @@ static int scan_wifi(void)
 	chosen = osd_menu("Choose a Wi-Fi Network", items, n, &sel);
 	if (chosen < 0)
 		return 0;
-	if (!aps[chosen].secure || strcmp(wifi_ssid, aps[chosen].ssid) != 0)
+	if (!aps[chosen].secure || strcmp(wifi_ssid, aps[chosen].ssid) != 0) {
 		wifi_psk[0] = '\0';
+		wifi_psk_raw = FALSE;
+	}
 	snprintf(wifi_ssid, sizeof(wifi_ssid), "%s", aps[chosen].ssid);
 	if (!write_wifi_config()) {
 		osd_message("Cannot write " WPA_CONFIG, TRUE);
@@ -417,10 +479,7 @@ static void network_menu(void)
 
 		read_wifi_config();
 		host_network_status(status, sizeof(status));
-		if (minutes == 0)
-			strcpy(tz, "UTC");
-		else
-			snprintf(tz, sizeof(tz), "UTC%+d", minutes / 60);
+		time_zone_name(tz, sizeof(tz), minutes);
 		{
 			struct osd_item items[] = {
 				{status, NULL, OSD_ITEM_LABEL, -1},
@@ -477,22 +536,23 @@ static void network_menu(void)
 			break;
 		}
 		case N_TIMEZONE: {
-			static char labels[27][8];
-			static const char *zones[28];
-			int h, current = 12;
-			for (h = -12; h <= 14; h++) {
-				if (h == 0)
-					strcpy(labels[h + 12], "UTC");
-				else
-					snprintf(labels[h + 12], sizeof(labels[0]), "UTC%+d", h);
-				zones[h + 12] = labels[h + 12];
-				if (h * 60 == minutes)
-					current = h + 12;
+			static char labels[TIME_ZONES][12];
+			static const char *zones[TIME_ZONES + 1];
+			int z, current = -1, utc = 0;
+			for (z = 0; z < TIME_ZONES; z++) {
+				time_zone_name(labels[z], sizeof(labels[0]), time_zones[z]);
+				zones[z] = labels[z];
+				if (time_zones[z] == 0)
+					utc = z;
+				if (time_zones[z] == minutes)
+					current = z;
 			}
-			zones[27] = NULL;
-			h = osd_choose("Time Zone", zones, current);
-			if (h >= 0 && h != current) {
-				save_setting_int("timezone", (h - 12) * 60);
+			if (current < 0)
+				current = utc;   /* an offset of its own in cmdline.txt */
+			zones[TIME_ZONES] = NULL;
+			z = osd_choose("Time Zone", zones, current);
+			if (z >= 0 && time_zones[z] != minutes) {
+				save_setting_int("timezone", time_zones[z]);
 				reboot_needed = TRUE;
 			}
 			break;
@@ -527,7 +587,8 @@ static void about(void)
 	         "Display: %dx%d %.2f Hz\n"
 	         "Frames: %.2f Hz, %s\n"
 	         "Network: %s",
-	         bmlisa_machine_name(bmlisa_machine()), base_name(bmlisa_hard_disk()),
+	         bmlisa_machine_name(bmlisa_machine()),
+	         bmlisa_hard_disk()[0] ? base_name(bmlisa_hard_disk()) : "(none)",
 	         w, h, bmlisa_refresh_rate(), LISA_FRAME_RATE,
 	         bmlisa_vsync_locked() ? "locked to display" : "timer paced", status);
 	osd_info("About BMLisa", text);

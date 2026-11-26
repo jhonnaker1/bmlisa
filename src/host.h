@@ -1,12 +1,28 @@
 /*
  * host.h - services the Circle kernel provides to the emulator.
  *
+ * BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+ * Copyright (C) 2026 aminch <https://github.com/aminch>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Modified for BMApple2 and BMLisa.
+ *
  * The emulator (IDLE and the port in src/port/) runs on core 1.
  * Everything it needs from the hardware goes through these functions, which
  * are implemented in src/kernel.cpp.
  *
- * This file is part of BMLisa, a bare metal Apple Lisa emulator for
- * the Raspberry Pi. See LICENSE for licensing details.
  */
 
 #ifndef BMLISA_HOST_H_
@@ -67,6 +83,9 @@ void host_sound_write(const int16_t *samples, unsigned frames);
 int host_key_event(int *usage, int *pressed);
 /* Is the key with this USB HID usage code down? */
 int host_key_down(int usage);
+/* Lights (or puts out) the Caps Lock light of every USB keyboard, those
+   plugged in later too. */
+void host_keyboard_caps_light(int on);
 /* USB HID modifier byte (bit 0 left ctrl ... bit 7 right GUI). */
 unsigned host_key_modifiers(void);
 
@@ -109,6 +128,17 @@ int host_mouse_read(int *dx, int *dy, int *buttons);
 /* State of the joystick wired to GPIO port PORT (0 or 1), as HOST_JOY_* bits.
    Always 0 when GPIO joysticks are disabled. */
 int host_gpio_joystick(int port);
+
+/* ---- USB sticks ---------------------------------------------------------- */
+
+#define HOST_USB_STICKS 3
+
+/* A number for USB stick N (0..HOST_USB_STICKS-1) plugged in now,
+   different for each stick plugged in since boot, or 0 when there is
+   none. */
+unsigned host_usb_stick(int n);
+/* The directory holding stick N's files ("USB:/", "USB2:/", "USB3:/"). */
+const char *host_usb_root(int n);
 
 /* ---- System -------------------------------------------------------------- */
 

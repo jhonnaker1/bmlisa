@@ -41,7 +41,8 @@ BMLisa, as their licences don't allow it (`src/port/lisa_cpu.c` and
   the Option keys) and mice.
 - The ProFile hard disk is an image on the SD card (`disks/profile.raw`
   unless another is chosen; a blank 10 MB one is made if there is none),
-  raw or LisaEm's `.dc42`, and floppies are Disk Copy 4.2 images.
+  raw or LisaEm's `.dc42`, and floppies are Disk Copy 4.2 images; both can
+  also be on a USB stick.
 - F12 opens BMLisa's menu: the floppy, the hard disk, the Lisa's power
   button (also F10), restarting, speed, the model (Lisa 2 or Lisa 1),
   video, network.

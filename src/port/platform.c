@@ -1,4 +1,22 @@
 /*
+ * BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+ * Copyright (C) 2026 aminch <https://github.com/aminch>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Modified for BMApple2 and BMLisa.
+ *
  * platform.c - BMLisa's front end for IDLE, the Lisa emulator.
  *
  * Does what IDLE's SDL front end (main_sdl.cpp) did, on top of the Circle
@@ -14,9 +32,6 @@
  * the display refreshes at (close to) that rate, each frame is shown on its
  * own display refresh, so the mouse moves smoothly; otherwise as many
  * frames are run as the time since starting calls for.
- *
- * This file is part of BMLisa, a bare metal Apple Lisa emulator for the
- * Raspberry Pi. See LICENSE for licensing details.
  */
 
 #include <stdio.h>
@@ -45,6 +60,15 @@ static int option_on(const char *name, int default_value)
 		return default_value;
 	return strcmp(value, "1") == 0 || strcmp(value, "on") == 0
 	    || strcmp(value, "yes") == 0 || strcmp(value, "true") == 0;
+}
+
+/* Whether PATH is complete as it is: from the card's root ("/disks/x"),
+   or naming its volume, as the web UI gives them ("SD:/disks/x",
+   "USB:/x"). */
+static int path_is_complete(const char *path)
+{
+	const char *colon = strchr(path, ':');
+	return path[0] == '/' || (colon != NULL && colon[1] == '/' && strchr(path, '/') > colon);
 }
 
 /* PATH in the card's DIR folder ("" for the root). */
@@ -393,7 +417,7 @@ static int open_hard_disk(void)
 		printf("BMLisa: no hard disk\n");
 		return TRUE;
 	}
-	if (want[0] == '/')
+	if (path_is_complete(want))
 		snprintf(hard_disk, sizeof hard_disk, "%s", want);
 	else if (want[0] != '\0')
 		card_path(hard_disk, sizeof hard_disk, "", want);
@@ -452,6 +476,15 @@ void bmlisa_eject_hard_disk(void)
 	hard_disk[0] = '\0';
 	save_setting("harddisk", "none");
 	printf("BMLisa: hard disk ejected\n");
+}
+
+/* The hard disk's USB stick was pulled out (usbsticks.c): no ProFile, but
+   bmlisa.cfg keeps the disk for the next boot with the stick in. */
+void bmlisa_unplug_hard_disk(void)
+{
+	bmlisa_lisa_eject_hard_disk();
+	hard_disk[0] = '\0';
+	printf("BMLisa: hard disk unplugged\n");
 }
 
 /* ---- Power ---------------------------------------------------------------- */
@@ -566,6 +599,7 @@ void bmlisa_idle(void)
 	if (now - last_sync_time >= 1.0) {
 		last_sync_time = now;
 		sync_files();
+		bmlisa_check_usb_sticks();
 	}
 	if (request_power >= 0)
 		handle_requests();
@@ -609,6 +643,7 @@ static void process_input(void)
 				continue;
 			caps_locked = !caps_locked;
 			pressed = caps_locked;
+			host_keyboard_caps_light(caps_locked);
 		}
 		bmlisa_lisa_key(code, pressed);
 	}
@@ -734,7 +769,7 @@ void bmlisa_main(void)
 		const char *floppy = host_option("floppy", "");
 		if (floppy[0] != '\0') {
 			char path[512];
-			if (floppy[0] == '/')
+			if (path_is_complete(floppy))
 				snprintf(path, sizeof path, "%s", floppy);
 			else
 				card_path(path, sizeof path, "", floppy);
@@ -795,6 +830,7 @@ void bmlisa_main(void)
 		if (now - last_second >= 1.0) {
 			last_second = now;
 			sync_files();
+			bmlisa_check_usb_sticks();
 			show_network_address();
 		}
 		handle_requests();

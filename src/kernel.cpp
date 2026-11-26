@@ -1,17 +1,30 @@
 //
 // kernel.cpp
 //
-// This file is part of BMLisa, a bare metal Apple Lisa emulator for
-// the Raspberry Pi. See LICENSE for licensing details.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// Parts of the USB, frame buffer and sound handling are based on BMC64's
-// kernel.cpp, and those parts remain under the Apache License 2.0
-// (sdcard/licenses/Apache-2.0.txt).
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Modifications Copyright (C) 2026 aminch <https://github.com/aminch>
+// Modified for BMA800XL from BMC64's src/kernel.cpp: parts of the USB,
+// frame buffer and sound handling come from it; the rest is BMA800XL's.
+//
+// Modified for BMApple2 and BMLisa. The USB sticks follow Circle's
+// doc/usb-plug-and-play.txt and addon/fatfs/diskio.cpp.
 //
 
 #include "kernel.h"
 #include "logging.h"
 #include "network.h"
+#include "pi45/board.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -20,10 +33,6 @@
 #include <circle/bcmpropertytags.h>
 #include <circle/bcmwatchdog.h>
 #include <circle/machineinfo.h>
-#include <circle/memio.h>
-#if RASPPI >= 5
-#include <circle/bcm2712.h>
-#endif
 #include <circle/startup.h>
 #include <circle/synchronize.h>
 #include <circle/usb/usbhid.h>
@@ -31,12 +40,15 @@
 
 extern "C" {
 // From src/port/platform.c: the emulator's entry point, which runs on core
-// 1, and its Reboot / Shut Down request.
+// 1.
 void bmlisa_main(void);
-void bmlisa_request_power(int power_off);
 }
 
 static const char FromKernel[] = "bmlisa";
+
+// FatFs volumes of the USB sticks umsd1..umsd3 (Circle's
+// addon/fatfs/ffconf.h FF_VOLUME_STRS and diskio.cpp).
+static const char *const kUSBVolume[HOST_USB_STICKS] = {"USB:", "USB2:", "USB3:"};
 
 // Sample rate the VideoCore plays audio at.
 #define HW_SAMPLE_RATE 44100
@@ -127,9 +139,7 @@ CKernel::CKernel(void)
       mSerial(0, FALSE, 0),
 #endif
       mLog(&mSerial), mTimer(&mInterrupt), mLogger(mKernelOptions.GetLogLevel(), &mTimer),
-#if RASPPI <= 4
       mCPUThrottle(CPUSpeedMaximum),
-#endif
       mGPIOManager(&mInterrupt),
 #if RASPPI <= 3
       mVCHIQ(CMemorySystem::Get(), &mInterrupt),
@@ -145,10 +155,17 @@ CKernel::CKernel(void)
 #endif
       m_MergedModifiers(0),
       m_KeyQueueHead(0), m_KeyQueueTail(0), m_pMouse(0), m_MouseDx(0),
-      m_MouseDy(0), m_MouseButtons(0), m_bGPIOJoysticks(false) {
+      m_MouseDy(0), m_MouseButtons(0), m_USBSticks(0),
+      m_bGPIOJoysticks(false) {
   s_pThis = this;
+  for (unsigned i = 0; i < HOST_USB_STICKS; i++) {
+    m_pUSBStick[i] = 0;
+    m_USBStickIndex[i] = i;
+    m_USBStick[i] = 0;
+  }
   for (unsigned i = 0; i < MAX_KEYBOARDS; i++) {
     m_pKeyboard[i] = 0;
+    m_CapsLightSet[i] = -1;
     m_KeyboardIndex[i] = i;
     m_KeyboardModifiers[i] = 0;
     memset(m_KeyboardKeys[i], 0, sizeof m_KeyboardKeys[i]);
@@ -234,6 +251,11 @@ bool CKernel::Initialize(void) {
   if (!mUSBHCI.Initialize()) {
     return false;
   }
+  for (unsigned i = 0; i < HOST_USB_STICKS; i++) {
+    if (f_mount(&mUSBFileSystem[i], kUSBVolume[i], 0) != FR_OK) {
+      mLogger.Write(FromKernel, LogError, "Cannot mount %s", kUSBVolume[i]);
+    }
+  }
   mLog.Flush();
 
   const char *audio_out = mOptions.Get("audio_out", "auto");
@@ -299,6 +321,22 @@ void CKernel::UpdateUSBPlugAndPlay(void) {
     SetupUSBKeyboards();
     SetupUSBGamePads();
     SetupUSBMouse();
+    SetupUSBSticks();
+  }
+  UpdateKeyboardLights();
+}
+
+// The Caps Lock light, on each keyboard whose light isn't as wanted (a
+// keyboard just plugged in too). SetLEDs() sends a USB request, which must
+// not be made from an interrupt: this runs in core 0's loop, or the Pi
+// Zero's USB task.
+void CKernel::UpdateKeyboardLights(void) {
+  int wanted = m_CapsLightWanted;
+  for (unsigned i = 0; i < MAX_KEYBOARDS; i++) {
+    if (m_pKeyboard[i] != 0 && m_CapsLightSet[i] != wanted) {
+      m_pKeyboard[i]->SetLEDs(wanted ? LED_CAPS_LOCK : 0);
+      m_CapsLightSet[i] = wanted;
+    }
   }
 }
 
@@ -306,6 +344,7 @@ TShutdownMode CKernel::Run(void) {
   SetupUSBKeyboards();
   SetupUSBGamePads();
   SetupUSBMouse();
+  SetupUSBSticks();
   mLog.Flush();
   mStarting = false;
 
@@ -366,7 +405,7 @@ TShutdownMode CKernel::Run(void) {
       }
     }
 #if RASPPI >= 5
-    CheckPowerButton();
+    Pi45BoardPoll();
 #endif
 
     asm volatile("wfi");
@@ -375,38 +414,6 @@ TShutdownMode CKernel::Run(void) {
   return ShutdownHalt;
 #endif
 }
-
-#if RASPPI >= 5
-// The Pi 5's power button, and the Pi 500's power key, as Shut Down: GPIO
-// 20 of the BCM2712's own GPIO block ("gio", Circle's ARM_GPIO1_BASE),
-// low while pressed, held for 50 ms (the device trees' debounce time). It
-// counts only once it has been seen released.
-// Sources: Raspberry Pi Linux device trees, bcm2712-rpi-5-b.dts
-// (pwr_button: gpio-keys, KEY_POWER, <&gio 20 GPIO_ACTIVE_LOW>,
-// debounce-interval 50, pull-up) and bcm2712-rpi-500.dts (the same key);
-// bcm2712.dtsi (gio at 0x7D508500); Circle, include/circle/bcm2712.h
-// (ARM_GPIO1_DATA0, the first bank's levels).
-void CKernel::CheckPowerButton(void) {
-  const u32 Button = 1u << 20;
-  bool down = (read32(ARM_GPIO1_DATA0) & Button) == 0;
-  unsigned now = CTimer::GetClockTicks();
-  if (!down) {
-    m_bPowerButtonSeenUp = true;
-    m_nPowerButtonDown = 0;
-    return;
-  }
-  if (!m_bPowerButtonSeenUp) {
-    return;
-  }
-  if (m_nPowerButtonDown == 0) {
-    m_nPowerButtonDown = now | 1;
-  } else if (now - m_nPowerButtonDown >= CLOCKHZ / 20) {
-    mLogger.Write(FromKernel, LogNotice, "Power button: Shut Down");
-    bmlisa_request_power(1);
-    m_bPowerButtonSeenUp = false;
-  }
-}
-#endif
 
 //
 // USB keyboards
@@ -422,6 +429,7 @@ void CKernel::SetupUSBKeyboards(void) {
     m_pKeyboard[i] =
         (CUSBKeyboardDevice *)mDeviceNameService.GetDevice(name, FALSE);
     if (m_pKeyboard[i] != 0) {
+      m_CapsLightSet[i] = -1;
       m_pKeyboard[i]->RegisterRemovedHandler(KeyboardRemovedHandler,
                                              &m_KeyboardIndex[i]);
       m_pKeyboard[i]->RegisterKeyStatusHandlerRaw(KeyStatusHandlerRaw, FALSE,
@@ -775,6 +783,45 @@ int CKernel::MouseRead(int *dx, int *dy, int *buttons) {
 }
 
 //
+// USB sticks
+//
+
+// Core 0, task level. The sticks' files are read and written by the
+// emulator, through FatFs, as "USB:/", "USB2:/" and "USB3:/"; here it is
+// only noted which are there.
+void CKernel::SetupUSBSticks(void) {
+  for (unsigned i = 0; i < HOST_USB_STICKS; i++) {
+    if (m_pUSBStick[i] != 0) {
+      continue;
+    }
+    char name[16];
+    snprintf(name, sizeof name, "umsd%u", i + 1);
+    CDevice *stick = mDeviceNameService.GetDevice(name, TRUE);
+    if (stick == 0) {
+      continue;
+    }
+    stick->RegisterRemovedHandler(USBStickRemovedHandler, &m_USBStickIndex[i]);
+    m_pUSBStick[i] = stick;
+    if (++m_USBSticks == 0) {
+      m_USBSticks = 1;
+    }
+    m_USBStick[i] = m_USBSticks;
+    mLogger.Write(FromKernel, LogNotice, "USB stick connected as %s", kUSBVolume[i]);
+  }
+}
+
+void CKernel::USBStickRemovedHandler(CDevice *pDevice, void *pContext) {
+  CKernel *k = s_pThis;
+  unsigned i = *(unsigned *)pContext;
+  if (k == 0 || i >= HOST_USB_STICKS || pDevice != k->m_pUSBStick[i]) {
+    return;
+  }
+  k->m_pUSBStick[i] = 0;
+  k->m_USBStick[i] = 0;
+  k->mLogger.Write(FromKernel, LogNotice, "USB stick %s removed", kUSBVolume[i]);
+}
+
+//
 // GPIO joysticks
 //
 
@@ -840,9 +887,8 @@ bool CKernel::DisplayMatchRate(double fps) {
 bool CKernel::DisplayResolutionChoice(void) { return mVideo.ResolutionChoice(); }
 
 void CKernel::VideoPresent(int wait_vsync) {
-  // Let Circle's tasks (the network, the web UI) run once per frame.
-  Core1Beat("running Circle tasks");
-  CScheduler::Get()->Yield();
+  // Let Circle's tasks (the network, the web UI) run.
+  RunTasks();
   Core1Beat("writing the log file");
   mLog.Drain();
   Core1Beat("showing a frame (framebuffer)");
@@ -929,9 +975,8 @@ bool CKernel::DisplayMatchRate(double fps) {
 bool CKernel::DisplayResolutionChoice(void) { return false; }
 
 void CKernel::VideoPresent(int wait_vsync) {
-  // Let Circle's tasks (VCHIQ in particular) run once per frame.
-  Core1Beat("running Circle tasks");
-  CScheduler::Get()->Yield();
+  // Let Circle's tasks (VCHIQ in particular, the network, the web UI) run.
+  RunTasks();
   Core1Beat("writing the log file");
   mLog.Drain();
   Core1Beat("showing a frame (dispmanx)");
@@ -1160,6 +1205,26 @@ void host_sleep_us(unsigned us) {
   }
 }
 
+// The least time Circle's tasks get each frame, in clock ticks
+// (task_time_us in cmdline.txt; 0 is one turn). From BMAmiga, as BMNeXT
+// and BMAtariST have it. They share core 1 with the Lisa, and one turn a
+// frame starved them while it was busy (BMAmiga's pings took 250 ms, its
+// web UI sent 8 KB/s). 1000 by default on the Pi 4 and 5; the Pi 3 and
+// older, with less to spare, keep one turn unless it is set.
+static u64 s_TaskTicks = (u64)-1;
+
+void CKernel::RunTasks(void) {
+  Core1Beat("running Circle tasks");
+  if (s_TaskTicks == (u64)-1) {
+    int us = mOptions.GetInt("task_time_us", RASPPI >= 4 ? 1000 : 0);
+    s_TaskTicks = us > 0 ? (u64)us * (CLOCKHZ / 1000000) : 0;
+  }
+  u64 t0 = CTimer::GetClockTicks64();
+  do {
+    CScheduler::Get()->Yield();
+  } while (CTimer::GetClockTicks64() - t0 < s_TaskTicks);
+}
+
 void host_yield(void) { CScheduler::Get()->Yield(); }
 
 int host_video_init(int width, int height, uint16_t **pixels, int *pitch) {
@@ -1194,6 +1259,8 @@ int host_key_event(int *usage, int *pressed) {
 
 int host_key_down(int usage) { return CKernel::Get()->KeyDown(usage); }
 
+void host_keyboard_caps_light(int on) { CKernel::Get()->SetCapsLight(on); }
+
 unsigned host_key_modifiers(void) { return CKernel::Get()->KeyModifiers(); }
 
 int host_pad_state(int pad) { return CKernel::Get()->PadState(pad); }
@@ -1202,6 +1269,13 @@ int host_pad_axis(int pad, int axis) { return CKernel::Get()->PadAxis(pad, axis)
 
 int host_mouse_read(int *dx, int *dy, int *buttons) {
   return CKernel::Get()->MouseRead(dx, dy, buttons);
+}
+
+unsigned host_usb_stick(int n) { return CKernel::Get()->USBStick(n); }
+
+const char *host_usb_root(int n) {
+  static const char *const kRoot[HOST_USB_STICKS] = {"USB:/", "USB2:/", "USB3:/"};
+  return n >= 0 && n < HOST_USB_STICKS ? kRoot[n] : 0;
 }
 
 int host_gpio_joystick(int port) { return CKernel::Get()->GpioJoystick(port); }

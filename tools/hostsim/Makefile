@@ -28,6 +28,7 @@ OBJS := $(addprefix $(OUT)/idle/,$(IDLE_SRCS:.c=.o)) \
         $(OUT)/port/lisa_cpu.o $(OUT)/port/lisa_nofpu.o $(OUT)/port/lisa.o $(OUT)/port/scc.o \
         $(OUT)/port/platform.o $(OUT)/port/keymap.o \
         $(OUT)/port/menu.o $(OUT)/port/osd.o \
+        $(OUT)/port/usbsticks.o $(OUT)/port/fswrap.o \
         $(OUT)/host_sim.o $(OUT)/live.o
 
 all: $(OUT)/bmlisa_sim

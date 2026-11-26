@@ -8,6 +8,7 @@
 #ifndef BMLISA_PORT_H_
 #define BMLISA_PORT_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifndef TRUE
@@ -76,6 +77,22 @@ int bmlisa_set_hard_disk(const char *path);
 /* No hard disk (the ProFile unplugged) until another is chosen; "" is then
    the hard disk's name. */
 void bmlisa_eject_hard_disk(void);
+/* The same, but bmlisa.cfg keeps it (its USB stick was pulled out). */
+void bmlisa_unplug_hard_disk(void);
+
+/* usbsticks.c: the USB sticks as the folders USB:, USB2: and USB3: in the
+   card's top folder. bmlisa_usb_path() writes the stick's own path for one
+   in those folders ("/USB:/x.dc42" is "USB:/x.dc42") and returns the stick
+   (0-2), or -1 for a path that isn't in them; bmlisa_usb_stick_of() is the
+   stick a disk's path is on, or -1; bmlisa_usb_is_card_root() is whether a
+   folder is the card's top one; bmlisa_usb_folder(i) the folder of the
+   i-th stick plugged in, or NULL. bmlisa_check_usb_sticks(), once a
+   second, ejects the disks on a stick pulled out. */
+int bmlisa_usb_path(const char *path, char *out, size_t size);
+int bmlisa_usb_stick_of(const char *path);
+int bmlisa_usb_is_card_root(const char *path);
+const char *bmlisa_usb_folder(int i);
+void bmlisa_check_usb_sticks(void);
 /* Puts a floppy image in drive DRIVE (0, or the Lisa 1's 1). */
 int bmlisa_insert_floppy(const char *path, int drive);
 const char *bmlisa_floppy(int drive);

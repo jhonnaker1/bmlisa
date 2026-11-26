@@ -175,7 +175,9 @@ with `tools/gen_webui_assets.py` whenever an asset changes.
 | `src/port/idle.mk`           | Which IDLE and Musashi sources are built   |
 | `src/port/keymap.c`          | USB HID usages to Lisa keyboard codes       |
 | `src/port/menu.c`, `osd.c`, `osd_font.h` | The menu and its on-screen display |
-| `src/port/fswrap.c`          | `stat()` of the SD card's root, which FatFs can't do (`--wrap=stat`) |
+| `src/port/fswrap.c`          | `stat()` of the SD card's root, which FatFs can't do, and the USB sticks' folders (`/USB:/...`) in every file call (`--wrap` of the file calls) |
+| `src/port/usbsticks.c`       | The USB sticks' folders, and ejecting their disks when one is pulled out |
+| `src/port/bigalloc.c`        | Big blocks of memory used again once freed, which Circle's heap loses (`--wrap=malloc`, `free`, `calloc`, `realloc`); tested by `tools/bigalloc` |
 | `src/patches/`               | Changes applied to Circle by `make_all.sh`  |
 | `sdcard/`                    | Files for the SD card                       |
 | `third_party/idle`           | IDLE (its Subversion repository, less the files whose licences don't allow BMLisa) |

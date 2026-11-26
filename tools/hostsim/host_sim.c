@@ -1,4 +1,22 @@
 /*
+ * BMA800XL - A bare metal Atari 800XL emulator for Raspberry Pi
+ * Copyright (C) 2026 aminch <https://github.com/aminch>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Modified for BMApple2 and BMLisa.
+ *
  * host_sim.c - runs the BMLisa emulator port on a PC for testing.
  *
  * Implements src/host.h with a simulated display, sound output and input,
@@ -14,6 +32,11 @@
  *   <frame> pad <n> <bits>         set gamepad n to HOST_PAD_* bits
  *   <frame> axis <n> <x> <y>       gamepad n's analog stick (0-65535, -1 none)
  *   <frame> gpio <port> <bits>     GPIO joystick port to HOST_JOY_* bits
+ *   <frame> usb <1-3> <0|1>        pull out or plug in USB stick 1-3 (usb/,
+ *                                  usb2/, usb3/)
+ *   <frame> ls <dir>               list a folder through src/port/fswrap.c, as
+ *                                  the menu's file browser does on the Pi
+ *   <frame> stat <path>            the same for stat(): dir, file or missing
  *   <frame> mouse <dx> <dy> <buttons>  the mouse moves (buttons: bit 0 left)
  *   <frame> shot <file.ppm>        save the visible screen
  *   <frame> audio                  print audio statistics
@@ -30,9 +53,6 @@
  * With BMLISA_LIVE=PORT it runs in real time instead, with no script: the
  * screen, keyboard, gamepads and sound are in a web page at
  * http://127.0.0.1:PORT/ (live.c, live.html). tools/hostsim/live.sh starts it.
- *
- * This file is part of BMLisa, a bare metal Apple Lisa emulator for
- * the Raspberry Pi. See LICENSE for licensing details.
  */
 
 #include <errno.h>
@@ -45,8 +65,41 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
+#include <dirent.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <sys/stat.h>
+
 #include "../../src/host.h"
 #include "live.h"
+
+/* src/port/fswrap.c is built in, with its __real_ calls going straight to
+   the C library (the PC has no --wrap; IDLE's and the menu's calls don't
+   go through it). */
+DIR *__wrap_opendir(const char *path);
+struct dirent *__wrap_readdir(DIR *dir);
+int __wrap_closedir(DIR *dir);
+int __wrap_stat(const char *path, struct stat *st);
+int __real_stat(const char *path, struct stat *st) { return stat(path, st); }
+int __real_lstat(const char *path, struct stat *st) { return lstat(path, st); }
+int __real_open(const char *path, int flags, ...)
+{
+	int mode = 0;
+	if (flags & O_CREAT) {
+		va_list ap;
+		va_start(ap, flags);
+		mode = va_arg(ap, int);
+		va_end(ap);
+	}
+	return open(path, flags, mode);
+}
+FILE *__real_fopen(const char *path, const char *mode) { return fopen(path, mode); }
+DIR *__real_opendir(const char *path) { return opendir(path); }
+struct dirent *__real_readdir(DIR *dir) { return readdir(dir); }
+int __real_closedir(DIR *dir) { return closedir(dir); }
+int __real_unlink(const char *path) { return unlink(path); }
+int __real_rename(const char *from, const char *to) { return rename(from, to); }
+int __real_mkdir(const char *path, mode_t mode) { return mkdir(path, mode); }
 
 /* From src/port/platform.c, called by the web UI on the Pi. */
 void bmlisa_request_power(int power_off);
@@ -349,6 +402,11 @@ int host_key_event(int *usage, int *pressed)
 
 int host_key_down(int usage) { return key_state[usage & 0xff]; }
 
+void host_keyboard_caps_light(int on)
+{
+	fprintf(stderr, "[sim] frame %ld: Caps Lock light %s\n", frame, on ? "on" : "off");
+}
+
 unsigned host_key_modifiers(void)
 {
 	unsigned m = 0;
@@ -368,6 +426,38 @@ int host_pad_axis(int pad, int axis)
 }
 
 int host_gpio_joystick(int port) { return port >= 0 && port < 2 ? gpio[port] : 0; }
+
+/* The USB sticks are the folders usb/, usb2/ and usb3/ in the test's
+   directory. BMLISA_USB=N has the first N plugged in from the start; the
+   script's "usb" command plugs one in or pulls it out. */
+static unsigned usb_stick[HOST_USB_STICKS];
+static unsigned usb_sticks;
+static int usb_started;
+
+static void usb_start(void)
+{
+	const char *env = getenv("BMLISA_USB");
+	int n, count = env ? atoi(env) : 0;
+	if (usb_started)
+		return;
+	usb_started = 1;
+	for (n = 0; n < count && n < HOST_USB_STICKS; n++)
+		usb_stick[n] = ++usb_sticks;
+}
+
+unsigned host_usb_stick(int n)
+{
+	usb_start();
+	return n >= 0 && n < HOST_USB_STICKS ? usb_stick[n] : 0;
+}
+
+const char *host_usb_root(int n)
+{
+	static const char *const root[HOST_USB_STICKS] = {"usb/", "usb2/", "usb3/"};
+	return n >= 0 && n < HOST_USB_STICKS ? root[n] : NULL;
+}
+
+static int mouse_dx, mouse_dy, mouse_buttons, mouse_seen;
 
 int host_mouse_read(int *dx, int *dy, int *buttons)
 {
@@ -506,6 +596,14 @@ static void run_script(void)
 			int port, bits;
 			sscanf(line + n, "%d %i", &port, &bits);
 			gpio[port & 1] = bits;
+		} else if (strcmp(cmd, "usb") == 0) {
+			int stick, in;
+			if (sscanf(line + n, "%d %d", &stick, &in) != 2 || stick < 1 || stick > HOST_USB_STICKS) {
+				fprintf(stderr, "[sim] invalid usb command: %s\n", line);
+				exit(1);
+			}
+			usb_start();
+			usb_stick[stick - 1] = in ? ++usb_sticks : 0;
 		} else if (strcmp(cmd, "run") == 0) {
 			emu_autostart_interrupt(line + n + 1);
 		} else if (strcmp(cmd, "shot") == 0) {
@@ -522,7 +620,32 @@ static void run_script(void)
 			        frame, snd_written, snd_writes, snd_min_fill, snd_max_fill, snd_underruns,
 			        snd_nonzero);
 			fprintf(stderr, "[sim] frame %ld: %ld frames presented\n", frame, presents);
-		} else if (strcmp(cmd, "quit") == 0) {
+		} else if (strcmp(cmd, "ls") == 0) {
+			char path[512];
+			DIR *dir;
+			struct dirent *e;
+			if (sscanf(line + n, " %511s", path) != 1)
+				path[0] = 0;
+			fprintf(stderr, "[sim] frame %ld: ls %s:", frame, path);
+			dir = __wrap_opendir(path);
+			while (dir != NULL && (e = __wrap_readdir(dir)) != NULL) {
+				if (e->d_name[0] != '.')
+					fprintf(stderr, " %s", e->d_name);
+			}
+			if (dir != NULL)
+				__wrap_closedir(dir);
+			else
+				fprintf(stderr, " (cannot open)");
+			fprintf(stderr, "\n");
+		} else if (strcmp(cmd, "stat") == 0) {
+			char path[512];
+			struct stat st;
+			if (sscanf(line + n, " %511s", path) != 1)
+				path[0] = 0;
+			fprintf(stderr, "[sim] frame %ld: stat %s: %s\n", frame, path,
+			        __wrap_stat(path, &st) != 0 ? "missing"
+			        : S_ISDIR(st.st_mode) ? "dir" : "file");
+				} else if (strcmp(cmd, "quit") == 0) {
 			fprintf(stderr, "[sim] quit at frame %ld (%.2f s)\n", frame, now);
 			exit(0);
 		}

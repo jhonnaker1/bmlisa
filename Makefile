@@ -44,7 +44,7 @@ EMU_LIB := $(BUILD)/libidle.a
 
 OBJS = src/main.o src/kernel.o src/logging.o src/options.o \
        src/port/platform.o src/port/keymap.o src/port/menu.o src/port/osd.o \
-       src/port/fswrap.o \
+       src/port/fswrap.o src/port/usbsticks.o src/port/bigalloc.o src/bigalloc_size.o \
        src/network.o src/network_time_sync.o \
        src/webui/webui.o src/webui/webui_http.o src/webui/webui_fs.o \
        src/webui/webui_machine.o src/webui/webui_assets.o \
@@ -65,7 +65,8 @@ OBJS += src/kms/pi4/dlist.o src/kms/pi4/hvs.o src/kms/pi4/display.o \
         src/kms/pi4/phy.o src/kms/pi4/modeset.o
 else
 OBJS += src/kms/pi5/dlist.o src/kms/pi5/hvs.o src/kms/pi5/display.o \
-        src/kms/pi5/phy.o src/kms/pi5/modeset.o
+        src/kms/pi5/phy.o src/kms/pi5/modeset.o \
+        src/pi45/board.o src/pi45/fan.o
 endif
 # Smooth scaling and the CRT shader are drawn by the ARM: -O3 lets GCC turn
 # their per-pixel loops into NEON code (tools/pi4scaler tests the same).
@@ -80,7 +81,10 @@ include $(CIRCLEHOME)/Rules.mk
 INCLUDE := $(CIRCLE_STDLIB_INCLUDES) $(INCLUDE) -I $(CIRCLEHOME)/addon/fatfs
 
 # See src/port/fswrap.c
-LDFLAGS += --wrap=stat
+LDFLAGS += --wrap=stat --wrap=lstat --wrap=open --wrap=fopen --wrap=opendir \
+           --wrap=readdir --wrap=closedir --wrap=unlink --wrap=rename --wrap=mkdir
+# See src/port/bigalloc.c
+LDFLAGS += --wrap=malloc --wrap=free --wrap=calloc --wrap=realloc
 
 VERSION_DEFINES = -DBMLISA_VERSION=\"$(BMLISA_VERSION)\" \
                   -DBMLISA_GIT=\"$(BMLISA_GIT)\" -DIDLE_VERSION=\"$(IDLE_VERSION)\" \
@@ -177,7 +181,8 @@ LIBS := $(EMU_LIB) \
 EXTRACLEAN += $(OBJS) src/*.o src/port/*.d src/*.d src/webui/*.d src/sdcard/*.d \
               src/av/*.o src/av/*.d src/kms/common/*.o src/kms/common/*.d \
               src/kms/pi4/*.o src/kms/pi4/*.d \
-              src/kms/pi5/*.o src/kms/pi5/*.d src/v3d/*.o src/v3d/*.d
+              src/kms/pi5/*.o src/kms/pi5/*.d src/v3d/*.o src/v3d/*.d \
+              src/pi45/*.o src/pi45/*.d
 .PHONY: distclean
 
 distclean: clean

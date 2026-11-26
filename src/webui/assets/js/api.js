@@ -1,5 +1,30 @@
+//
+// api.js
+//
+// BMC64 - A bare metal Commodore emulator for Raspberry Pi
+// Copyright (C) 2026 aminch <https://github.com/aminch>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Modified for BMA800XL from BMC64's src/webui/assets/js/api.js:
+// BMA800XL's request header, without profiles; listDir takes the volume.
+//
+// Modified for BMApple2 and BMLisa.
+//
 // Every call to the device's /api/* endpoints lives here, so the other
 // modules deal only in plain values and ApiError.
+//
 
 export class ApiError extends Error {
   constructor(status, detail) {
@@ -42,9 +67,10 @@ export const disableWebUi = () => post("/api/webui/disable");
 
 // ---- files ----
 
-// No vol: the first listing tells us which volume the device uses.
-export const listDir = (path) =>
-  getJson("/api/fs/list?path=" + encodeURIComponent(path));
+// No vol: the card, whose name the listing gives.
+export const listDir = (vol, path) =>
+  getJson("/api/fs/list?" + (vol ? fsQuery(vol, path)
+                                 : "path=" + encodeURIComponent(path)));
 
 export const downloadUrl = (vol, path) =>
   "/api/fs/download?" + fsQuery(vol, path);
